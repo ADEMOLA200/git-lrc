@@ -1,6 +1,8 @@
 # lrc installer for Windows PowerShell
 # Usage: iwr -useb https://your-domain/lrc-install.ps1 | iex
 #   or:  Invoke-WebRequest -Uri https://your-domain/lrc-install.ps1 -UseBasicParsing | Invoke-Expression
+# This is the script launched automatically from Git Bash on Windows by
+# scripts/lrc-install.sh.
 
 $ErrorActionPreference = "Stop"
 
@@ -35,6 +37,7 @@ if (-not $isAdmin) {
         $prefix = ""
         if ($env:LRC_API_KEY) { $prefix += "`$env:LRC_API_KEY = '$($env:LRC_API_KEY)'`r`n" }
         if ($env:LRC_API_URL) { $prefix += "`$env:LRC_API_URL = '$($env:LRC_API_URL)'`r`n" }
+        if ($env:LRC_INSTALL_MARKER) { $prefix += "`$env:LRC_INSTALL_MARKER = '$($env:LRC_INSTALL_MARKER)'`r`n" }
         $suffix = "`r`nWrite-Host ''`r`nWrite-Host 'Press any key to close...' -ForegroundColor Cyan`r`n`$null = `$Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')`r`n"
         $scriptContent = [System.IO.File]::ReadAllText($scriptPath)
         [System.IO.File]::WriteAllText($scriptPath, $prefix + $scriptContent + $suffix)
@@ -381,3 +384,10 @@ if ($lrcVer -and $gitLrcVer -and ($lrcVer -ne $gitLrcVer)) {
 
 Write-Host ""
 Write-Host "Run 'lrc --help' to get started"
+
+if ($env:LRC_INSTALL_MARKER) {
+    try {
+        Set-Content -Path $env:LRC_INSTALL_MARKER -Value "LRC_INSTALL_OK" -NoNewline -Encoding ascii
+    } catch {
+    }
+}

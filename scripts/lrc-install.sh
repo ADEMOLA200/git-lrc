@@ -2,6 +2,8 @@
 # lrc installer - automatically downloads and installs the latest lrc CLI
 # Usage: curl -fsSL https://your-domain/lrc-install.sh | bash
 #   or:  wget -qO- https://your-domain/lrc-install.sh | bash
+# On Windows Git Bash/MSYS/MINGW/CYGWIN, this script attempts to hand off to
+# PowerShell installer automatically.
 
 set -e
 
@@ -11,6 +13,19 @@ print_sudo_help() {
     echo "  1) Try running 'sudo su' in your terminal to verify sudo works."
     echo "  2) If sudo fails here, try a different system terminal (some terminals do not prompt correctly)."
     echo "  3) If sudo access is not available, we cannot install lrc. Please file an issue with details: https://github.com/HexmosTech/LiveReview/issues"
+    echo ""
+}
+
+print_windows_handoff_help() {
+    local reason="$1"
+    echo ""
+    echo -e "${YELLOW}Windows + Git Bash detected.${NC}"
+    echo -e "${YELLOW}Could not automatically launch the PowerShell installer: ${reason}${NC}"
+    echo ""
+    echo "Run this in PowerShell (copy/paste):"
+    echo "  iwr -useb https://hexmos.com/lrc-install.ps1 | iex"
+    echo ""
+    echo "If needed, first open PowerShell manually, then run the command above."
     echo ""
 }
 
@@ -48,7 +63,48 @@ case "$OS" in
         PLATFORM_OS="darwin"
         ;;
     msys*|mingw*|cygwin*)
-        echo -e "${RED}Error: Windows detected. Please use lrc-install.ps1 for Windows.${NC}"
+        echo -e "${YELLOW}Windows shell detected (${OS}). Switching to PowerShell installer...${NC}"
+
+        PS_CMD=""
+        if command -v powershell.exe >/dev/null 2>&1; then
+            PS_CMD="powershell.exe"
+        elif command -v powershell >/dev/null 2>&1; then
+            PS_CMD="powershell"
+        elif command -v pwsh.exe >/dev/null 2>&1; then
+            PS_CMD="pwsh.exe"
+        elif command -v pwsh >/dev/null 2>&1; then
+            PS_CMD="pwsh"
+        fi
+
+        if [ -z "$PS_CMD" ]; then
+            print_windows_handoff_help "PowerShell is not available in PATH"
+            exit 1
+        fi
+
+        MARKER_FILE="$(mktemp)"
+        MARKER_FILE_PS="$MARKER_FILE"
+        if command -v cygpath >/dev/null 2>&1; then
+            MARKER_FILE_PS="$(cygpath -w "$MARKER_FILE")"
+        fi
+
+        PS_INSTALL_CMD="\$ErrorActionPreference='Stop'; try { iwr -useb https://hexmos.com/lrc-install.ps1 | iex; \$marker = \$env:LRC_INSTALL_MARKER; if (-not [string]::IsNullOrWhiteSpace(\$marker)) { Set-Content -Path \$marker -Value 'LRC_INSTALL_OK' -NoNewline -Encoding ascii }; exit 0 } catch { Write-Host \$_.Exception.Message; exit 1 }"
+
+        PS_STATUS=1
+        LRC_INSTALL_MARKER="$MARKER_FILE_PS" "$PS_CMD" -NoProfile -ExecutionPolicy Bypass -Command "$PS_INSTALL_CMD" || PS_STATUS=$?
+
+        if [ -f "$MARKER_FILE" ] && grep -qx "LRC_INSTALL_OK" "$MARKER_FILE"; then
+            rm -f "$MARKER_FILE"
+            exit 0
+        fi
+
+        rm -f "$MARKER_FILE"
+
+        if [ "$PS_STATUS" -ne 0 ]; then
+            print_windows_handoff_help "PowerShell installer command failed"
+            exit 1
+        fi
+
+        print_windows_handoff_help "PowerShell installer did not report a success marker"
         exit 1
         ;;
     *)
