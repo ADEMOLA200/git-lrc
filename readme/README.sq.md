@@ -248,6 +248,10 @@ Nëse ju ndihmon — **ndajeni me miqtë tuaj zhvillues.** Sa më shumë njerëz
 
 ⭐ **[Dukeju një yll këtij repo](https://github.com/HexmosTech/git-lrc)** për të ndihmuar të tjerët ta zbulojnë.
 
+## Komuniteti
+
+Diskutoni mundësitë, përmirësimet, veçoritë dhe merrni ndihmë për kontribute në **komunitetin Discord të git-lrc**: [discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq).
+
 ## Licensa
 
 `git-lrc` shpërndahet sipas një varianti të modifikuar të **Sustainable Use License (SUL)**.

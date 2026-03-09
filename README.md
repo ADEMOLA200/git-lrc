@@ -248,6 +248,10 @@ If it helps you — **share it with your developer friends.** The more people re
 
 ⭐ **[Star this repo](https://github.com/HexmosTech/git-lrc)** to help others discover it.
 
+## Community
+
+Discuss possibilities, improvements, features, and get help with contributions in the **git-lrc Discord community**: [discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq).
+
 ## License
 
 `git-lrc` is distributed under a modified variant of **Sustainable Use License (SUL)**.

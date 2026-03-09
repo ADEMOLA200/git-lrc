@@ -248,6 +248,10 @@ Viss det hjelper deg — **del det med utviklarvenene dine.** Jo fleire som revi
 
 ⭐ **[Gi denne repo-en ei stjerne](https://github.com/HexmosTech/git-lrc)** for å hjelpe andre å oppdage han.
 
+## Fellesskap
+
+Diskuter moglegheiter, forbetringar, funksjonar og få hjelp med bidrag i **git-lrc Discord-fellesskapet**: [discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq).
+
 ## Lisens
 
 `git-lrc` vert distribuert under ei modifisert variant av **Sustainable Use License (SUL)**.

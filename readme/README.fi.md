@@ -248,6 +248,10 @@ Jos se auttaa sinua — **jaa kehittäjäystävillesi.** Mitä enemmän ihmisiä
 
 ⭐ **[Anna tälle repolle tähden](https://github.com/HexmosTech/git-lrc)** auttaaksesi muita löytämään sen.
 
+## Yhteisö
+
+Keskustele mahdollisuuksista, parannuksista, ominaisuuksista ja saa apua kontribuutioihin **git-lrc Discord -yhteisössä**: [discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq).
+
 ## Lisenssi
 
 `git-lrc` on jaettu **Sustainable Use License (SUL)** -lisenssin muokatun version alaisena.

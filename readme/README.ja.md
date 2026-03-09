@@ -247,6 +247,10 @@ git lrc review --commit HEAD~3..HEAD  # review a range
 
 ⭐ **[このリポジトリをスター](https://github.com/HexmosTech/git-lrc)** して、他の人にも見つけてもらいましょう。
 
+## コミュニティ
+
+可能性、改善、機能について議論し、貢献のヘルプを得るには **git-lrc Discord コミュニティ**へ：[discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq)。
+
 ## ライセンス
 
 `git-lrc` は **Sustainable Use License (SUL)** の改変版の下で配布されています。

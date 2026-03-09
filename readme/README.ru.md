@@ -248,6 +248,10 @@ git lrc review --commit HEAD~3..HEAD  # review a range
 
 ⭐ **[Поставьте звезду репозиторию](https://github.com/HexmosTech/git-lrc)** — так его легче найти.
 
+## Сообщество
+
+Обсуждайте идеи, улучшения, функции и получайте помощь по контрибуции в **Discord-сообществе git-lrc**: [discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq).
+
 ## Лицензия
 
 `git-lrc` распространяется под модифицированным вариантом **Sustainable Use License (SUL)**.

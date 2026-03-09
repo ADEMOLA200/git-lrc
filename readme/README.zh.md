@@ -247,6 +247,10 @@ git lrc review --commit HEAD~3..HEAD  # review a range
 
 ⭐ **[给本仓库点 Star](https://github.com/HexmosTech/git-lrc)** 让更多人发现它。
 
+## 社区
+
+在 **git-lrc Discord 社区**中讨论可能性、改进、功能并获取贡献帮助：[discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq)。
+
 ## 许可证
 
 `git-lrc` 在 **Sustainable Use License (SUL)** 的修改版本下分发。
