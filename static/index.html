@@ -11,21 +11,18 @@
     <!-- Styles -->
     <link rel="stylesheet" href="/static/styles.css">
     
-    <!-- Preact + HTM (no build step required) -->
-    <script type="module">
-        import { h, render } from 'https://esm.sh/preact@10.19.3';
-        import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/preact@10.19.3/hooks';
-        import htm from 'https://esm.sh/htm@3.1.1';
-        
-        // Initialize HTM with Preact
-        const html = htm.bind(h);
-        
-        // Make available globally for components
-        window.preact = { h, render, useState, useEffect, useCallback, useRef, html };
-    </script>
+        <!-- Vendored dependencies (source URLs for updates):
+            https://unpkg.com/preact@10.26.4/dist/preact.umd.js
+            https://unpkg.com/preact@10.26.4/hooks/dist/hooks.umd.js
+            https://unpkg.com/htm@3.1.1/dist/htm.umd.js
+            https://cdn.jsdelivr.net/npm/marked/marked.min.js -->
+        <script src="/static/vendor/preact.umd.js"></script>
+        <script src="/static/vendor/preact-hooks.umd.js"></script>
+        <script src="/static/vendor/htm.umd.js"></script>
+        <script src="/static/preact-bootstrap.js"></script>
     
-    <!-- Markdown parser -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Markdown parser (vendored local copy) -->
+    <script src="/static/vendor/marked.min.js"></script>
 </head>
 <body>
     <div id="app">

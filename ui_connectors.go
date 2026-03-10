@@ -164,7 +164,9 @@ func (s *connectorManagerServer) handleIndex(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(htmlBytes)
+	if _, err := io.Copy(w, bytes.NewReader(htmlBytes)); err != nil {
+		log.Printf("failed to write UI index response: %v", err)
+	}
 }
 
 func (s *connectorManagerServer) handleConnectors(w http.ResponseWriter, r *http.Request) {
@@ -434,7 +436,9 @@ func buildLiveReviewURL(baseURL, apiPath string) string {
 func writeRawJSON(w http.ResponseWriter, status int, body []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	if _, err := io.Copy(w, bytes.NewReader(body)); err != nil {
+		log.Printf("failed to write JSON response (status=%d): %v", status, err)
+	}
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) {

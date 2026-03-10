@@ -934,7 +934,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 					http.Error(w, "Failed to load page", http.StatusInternalServerError)
 					return
 				}
-				w.Write(htmlBytes)
+				if _, err := io.Copy(w, bytes.NewReader(htmlBytes)); err != nil && verbose {
+					log.Printf("failed to write index response: %v", err)
+				}
 			})
 
 			// API endpoint for review state - frontend polls this
@@ -1032,7 +1034,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 				if verbose && resp.StatusCode != 200 {
 					log.Printf("Error response body: %s", string(bodyBytes))
 				}
-				w.Write(bodyBytes)
+				if _, err := io.Copy(w, bytes.NewReader(bodyBytes)); err != nil && verbose {
+					log.Printf("failed to write proxy response body: %v", err)
+				}
 			})
 			server := &http.Server{
 				Handler: mux,
@@ -1477,13 +1481,13 @@ func collectDiffWithOptions(opts reviewOptions) ([]byte, error) {
 		if verbose {
 			log.Println("Collecting staged changes...")
 		}
-		return runGitCommand("git", "diff", "--staged")
+		return runGitCommand("diff", "--staged")
 
 	case "working":
 		if verbose {
 			log.Println("Collecting working tree changes...")
 		}
-		return runGitCommand("git", "diff")
+		return runGitCommand("diff")
 
 	case "commit":
 		commitVal := opts.commitVal
@@ -1496,10 +1500,10 @@ func collectDiffWithOptions(opts reviewOptions) ([]byte, error) {
 		// Check if it's a range (contains .. or ...)
 		if strings.Contains(commitVal, "..") {
 			// It's a commit range, use git diff
-			return runGitCommand("git", "diff", commitVal)
+			return runGitCommand("diff", commitVal)
 		}
 		// Single commit, use git show to get the commit's changes
-		return runGitCommand("git", "show", "--format=", commitVal)
+		return runGitCommand("show", "--format=", commitVal)
 
 	case "range":
 		rangeVal := opts.rangeVal
@@ -1509,7 +1513,7 @@ func collectDiffWithOptions(opts reviewOptions) ([]byte, error) {
 		if verbose {
 			log.Printf("Collecting diff for range: %s", rangeVal)
 		}
-		return runGitCommand("git", "diff", rangeVal)
+		return runGitCommand("diff", rangeVal)
 
 	case "file":
 		filePath := opts.diffFile
@@ -1526,8 +1530,8 @@ func collectDiffWithOptions(opts reviewOptions) ([]byte, error) {
 	}
 }
 
-func runGitCommand(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+func runGitCommand(args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -1846,7 +1850,7 @@ func deleteAttestationForCurrentTree() error {
 }
 
 func currentTreeHash() (string, error) {
-	out, err := runGitCommand("git", "write-tree")
+	out, err := runGitCommand("write-tree")
 	if err != nil {
 		return "", err
 	}
@@ -4482,7 +4486,20 @@ func copyFileContents(srcPath, dstPath string, mode fs.FileMode) error {
 }
 
 func runHooksInstallWithBinary(binaryPath string, verbose bool) error {
-	cmd := exec.Command(binaryPath, "hooks", "install")
+	cleaned := filepath.Clean(strings.TrimSpace(binaryPath))
+	if cleaned == "" {
+		return fmt.Errorf("hooks install binary path is empty")
+	}
+	base := filepath.Base(cleaned)
+	if base != "lrc" && base != "lrc.exe" {
+		return fmt.Errorf("invalid hooks install binary name: %s", base)
+	}
+	if _, err := os.Stat(cleaned); err != nil {
+		return fmt.Errorf("hooks install binary not accessible: %w", err)
+	}
+
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.Command(cleaned, "hooks", "install")
 	if verbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

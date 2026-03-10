@@ -122,13 +122,12 @@ func (rs *ReviewState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
 
-	data, err := rs.GetJSON()
-	if err != nil {
-		http.Error(w, "Failed to serialize state", http.StatusInternalServerError)
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	if err := json.NewEncoder(w).Encode(rs); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
 		return
 	}
-
-	w.Write(data)
 }
 
 // PrepareHTMLData converts ReviewState to HTMLTemplateData for initial page render

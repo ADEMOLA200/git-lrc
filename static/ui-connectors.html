@@ -372,12 +372,14 @@
       }
     }
   </style>
-  <script type="module">
-    import { h, render } from 'https://esm.sh/preact@10.26.4';
-    import { useEffect, useMemo, useRef, useState } from 'https://esm.sh/preact@10.26.4/hooks';
-    import htm from 'https://esm.sh/htm@3.1.1';
-    window.preact = { h, render, useEffect, useMemo, useRef, useState, html: htm.bind(h) };
-  </script>
+  <!-- Vendored dependencies (source URLs for updates):
+       https://unpkg.com/preact@10.26.4/dist/preact.umd.js
+       https://unpkg.com/preact@10.26.4/hooks/dist/hooks.umd.js
+       https://unpkg.com/htm@3.1.1/dist/htm.umd.js -->
+  <script src="/static/vendor/preact.umd.js"></script>
+  <script src="/static/vendor/preact-hooks.umd.js"></script>
+  <script src="/static/vendor/htm.umd.js"></script>
+  <script src="/static/ui-connectors-bootstrap.js"></script>
 </head>
 <body>
   <div id="app"></div>

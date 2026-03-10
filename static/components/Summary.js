@@ -1,6 +1,95 @@
 // Summary component - renders markdown summary
 import { waitForPreact } from './utils.js';
 
+const ALLOWED_TAGS = new Set([
+    'A', 'BLOCKQUOTE', 'BR', 'CODE', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+    'HR', 'LI', 'OL', 'P', 'PRE', 'STRONG', 'UL'
+]);
+
+const SAFE_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+function isSafeHref(href) {
+    if (!href) {
+        return false;
+    }
+    try {
+        const parsed = new URL(href, window.location.origin);
+        return SAFE_URL_PROTOCOLS.has(parsed.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function copyAllowedAttributes(source, target) {
+    if (source.tagName === 'A') {
+        const href = source.getAttribute('href') || '';
+        if (isSafeHref(href)) {
+            target.setAttribute('href', href);
+            target.setAttribute('rel', 'noopener noreferrer');
+            target.setAttribute('target', '_blank');
+        }
+    }
+
+    if (source.tagName === 'CODE') {
+        const className = source.getAttribute('class') || '';
+        if (/^[a-z0-9 _-]+$/i.test(className)) {
+            target.setAttribute('class', className);
+        }
+    }
+}
+
+function sanitizeNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return document.createTextNode(node.textContent || '');
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+        return null;
+    }
+
+    const source = node;
+    if (!ALLOWED_TAGS.has(source.tagName)) {
+        return document.createTextNode(source.textContent || '');
+    }
+
+    const target = document.createElement(source.tagName.toLowerCase());
+    copyAllowedAttributes(source, target);
+
+    for (const child of source.childNodes) {
+        const sanitizedChild = sanitizeNode(child);
+        if (sanitizedChild) {
+            target.appendChild(sanitizedChild);
+        }
+    }
+
+    return target;
+}
+
+function renderSafeMarkdown(container, markdown) {
+    if (!container) {
+        return;
+    }
+
+    const rawMarkdown = markdown || '';
+    if (typeof marked === 'undefined') {
+        container.textContent = rawMarkdown;
+        return;
+    }
+
+    const renderedHTML = marked.parse(rawMarkdown, { mangle: false, headerIds: false });
+    const parsed = new DOMParser().parseFromString(renderedHTML, 'text/html');
+    const fragment = document.createDocumentFragment();
+
+    for (const child of parsed.body.childNodes) {
+        const sanitizedChild = sanitizeNode(child);
+        if (sanitizedChild) {
+            fragment.appendChild(sanitizedChild);
+        }
+    }
+
+    container.replaceChildren(fragment);
+}
+
 export async function createSummary() {
     const { html, useEffect, useRef } = await waitForPreact();
     
@@ -8,9 +97,7 @@ export async function createSummary() {
         const contentRef = useRef(null);
         
         useEffect(() => {
-            if (contentRef.current && markdown && typeof marked !== 'undefined') {
-                contentRef.current.innerHTML = marked.parse(markdown);
-            }
+            renderSafeMarkdown(contentRef.current, markdown);
         }, [markdown]);
         
         const isError = status === 'failed' || errorSummary;

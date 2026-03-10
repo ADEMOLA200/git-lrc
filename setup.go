@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	htmltemplate "html/template"
 	"io"
 	"net"
 	"net/http"
@@ -392,7 +393,9 @@ func runHexmosLoginFlow(slog *setupLog) (*setupResult, error) {
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, setupLandingHTML, signinURL, signinURL)
+		if err := setupLandingPageTemplate.Execute(w, struct{ SigninURL string }{SigninURL: signinURL}); err != nil {
+			http.Error(w, "failed to render setup page", http.StatusInternalServerError)
+		}
 	})
 
 	// Callback handler: receives ?data= from Hexmos Login
@@ -400,7 +403,9 @@ func runHexmosLoginFlow(slog *setupLog) (*setupResult, error) {
 		dataParam := r.URL.Query().Get("data")
 		if dataParam == "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, setupErrorHTML)
+			if _, err := io.WriteString(w, setupErrorHTML); err != nil {
+				slog.write("warning: failed to write setup error page: %v", err)
+			}
 			errCh <- fmt.Errorf("no data parameter in callback")
 			return
 		}
@@ -408,20 +413,27 @@ func runHexmosLoginFlow(slog *setupLog) (*setupResult, error) {
 		var cbData hexmosCallbackData
 		if err := json.Unmarshal([]byte(dataParam), &cbData); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, setupErrorHTML)
+			if _, writeErr := io.WriteString(w, setupErrorHTML); writeErr != nil {
+				slog.write("warning: failed to write setup error page: %v", writeErr)
+			}
 			errCh <- fmt.Errorf("failed to parse callback data: %w", err)
 			return
 		}
 
 		if cbData.Result.JWT == "" || cbData.Result.Data.Email == "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, setupErrorHTML)
+			if _, err := io.WriteString(w, setupErrorHTML); err != nil {
+				slog.write("warning: failed to write setup error page: %v", err)
+			}
 			errCh <- fmt.Errorf("incomplete callback data (missing JWT or email)")
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, setupSuccessHTML)
+		if _, err := io.WriteString(w, setupSuccessHTML); err != nil {
+			errCh <- fmt.Errorf("failed to write setup success page: %w", err)
+			return
+		}
 		dataCh <- &cbData
 	})
 
@@ -808,7 +820,7 @@ const setupLandingHTML = `<!DOCTYPE html>
       width: 40px; height: 40px;
       border: 4px solid #e5e7eb;
       border-top-color: #4F46E5;
-      border-radius: 50%%;
+			border-radius: 50%;
       animation: spin 0.8s linear infinite;
       margin: 0 auto 24px;
     }
@@ -819,11 +831,13 @@ const setupLandingHTML = `<!DOCTYPE html>
   <div class="card">
     <div class="spinner"></div>
     <h1>Redirecting to Hexmos Login</h1>
-    <p>You'll be redirected automatically. If not, <a href="%s">click here</a>.</p>
+		<p>You'll be redirected automatically. If not, <a href="{{.SigninURL}}">click here</a>.</p>
   </div>
-  <script>window.location.href = %q;</script>
+	<script>window.location.href = "{{.SigninURL}}";</script>
 </body>
 </html>`
+
+var setupLandingPageTemplate = htmltemplate.Must(htmltemplate.New("setup-landing").Parse(setupLandingHTML))
 
 const setupSuccessHTML = `<!DOCTYPE html>
 <html>

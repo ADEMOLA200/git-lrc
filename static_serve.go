@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -187,6 +189,8 @@ func serveStaticFile(w http.ResponseWriter, r *http.Request, filename string) er
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	}
 
-	w.Write(content)
+	if _, err := io.Copy(w, bytes.NewReader(content)); err != nil {
+		return err
+	}
 	return nil
 }
