@@ -56,9 +56,25 @@ if ! git symbolic-ref -q HEAD >/dev/null; then
 	exit 0
 fi
 
-# 2. Abort if no upstream
+# 2. Bootstrap upstream on first push
 if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
-	echo "lrc: push skipped – no upstream configured"
+	if ! BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); then
+		echo "lrc: push failed – unable to resolve current branch for upstream bootstrap"
+		cleanup_flag
+		exit 1
+	fi
+	if [ -z "$BRANCH_NAME" ] || [ "$BRANCH_NAME" = "HEAD" ]; then
+		echo "lrc: push failed – unable to resolve a valid branch name for upstream bootstrap"
+		cleanup_flag
+		exit 1
+	fi
+	echo "lrc: no upstream configured for $BRANCH_NAME; creating origin upstream"
+	if ! git push -u origin HEAD; then
+		echo "lrc: push failed – could not create upstream on origin"
+		cleanup_flag
+		exit 1
+	fi
+	echo "lrc: push complete -> origin/$BRANCH_NAME"
 	cleanup_flag
 	exit 0
 fi

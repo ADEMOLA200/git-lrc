@@ -1573,7 +1573,24 @@ func runCommitAndMaybePush(message string, push bool, verbose bool) error {
 
 	upBytes, err := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").Output()
 	if err != nil {
-		fmt.Println("Skipping push – no upstream configured")
+		branchBytes, branchErr := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+		if branchErr != nil {
+			return fmt.Errorf("failed to resolve current branch for upstream bootstrap: %w", branchErr)
+		}
+		branchName := strings.TrimSpace(string(branchBytes))
+		if branchName == "" || branchName == "HEAD" {
+			return fmt.Errorf("failed to resolve a valid branch name for upstream bootstrap")
+		}
+
+		fmt.Printf("No upstream configured for %s. Creating upstream on origin...\n", branchName)
+		bootstrapPushCmd := exec.Command("git", "push", "-u", "origin", "HEAD")
+		bootstrapPushCmd.Stdout = os.Stdout
+		bootstrapPushCmd.Stderr = os.Stderr
+		if err := bootstrapPushCmd.Run(); err != nil {
+			return fmt.Errorf("git push -u origin HEAD failed: %w", err)
+		}
+
+		fmt.Printf("✅ Push complete and upstream configured: origin/%s\n", branchName)
 		return nil
 	}
 	upstream := strings.TrimSpace(string(upBytes))
