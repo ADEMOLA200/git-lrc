@@ -328,14 +328,14 @@ fi
 # ---------------------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
 
-# Authorize with B2
-echo -n "Authorizing with Backblaze B2... "
+# Resolve latest release metadata from remote repository
+echo -n "Checking remote repository for latest lrc release... "
 AUTH_RESPONSE=$(curl -s -u "${B2_KEY_ID}:${B2_APP_KEY}" \
     "https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
 
 if [ $? -ne 0 ] || [ -z "$AUTH_RESPONSE" ]; then
     echo -e "${RED}FAIL${NC}"
-    echo -e "${RED}Error: Failed to authorize with B2${NC}"
+    echo -e "${RED}Error: Failed to fetch release metadata from remote repository${NC}"
     exit 1
 fi
 
@@ -346,7 +346,7 @@ DOWNLOAD_URL=$(echo "$AUTH_RESPONSE" | tr -d '\n' | sed -n 's/.*"downloadUrl": "
 
 if [ -z "$AUTH_TOKEN" ] || [ -z "$API_URL" ]; then
     echo -e "${RED}FAIL${NC}"
-    echo -e "${RED}Error: Failed to parse B2 authorization response${NC}"
+    echo -e "${RED}Error: Failed to parse release metadata response${NC}"
     echo "Response: $AUTH_RESPONSE"
     exit 1
 fi
@@ -366,7 +366,7 @@ LIST_RESPONSE=$(curl -s -X POST "${API_URL}/b2api/v2/b2_list_file_names" \
 
 if [ $? -ne 0 ] || [ -z "$LIST_RESPONSE" ]; then
     echo -e "${RED}FAIL${NC}"
-    echo -e "${RED}Error: Failed to list files from B2${NC}"
+    echo -e "${RED}Error: Failed to list release files from remote repository${NC}"
     exit 1
 fi
 

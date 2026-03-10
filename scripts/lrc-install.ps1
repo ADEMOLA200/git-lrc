@@ -274,8 +274,8 @@ if (-not (Test-Path $INSTALL_DIR)) {
     New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
 }
 
-# Authorize with B2
-Write-Host -NoNewline "Authorizing with Backblaze B2... "
+# Resolve latest release metadata from remote repository
+Write-Host -NoNewline "Checking remote repository for latest lrc release... "
 $authString = "${B2_KEY_ID}:${B2_APP_KEY}"
 $authBytes = [System.Text.Encoding]::UTF8.GetBytes($authString)
 $authBase64 = [System.Convert]::ToBase64String($authBytes)
@@ -288,7 +288,7 @@ try {
     Write-Host "$OK" -ForegroundColor Green
 } catch {
     Write-Host "$FAIL" -ForegroundColor Red
-    Write-Host "Error: Failed to authorize with B2" -ForegroundColor Red
+    Write-Host "Error: Failed to fetch release metadata from remote repository" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
 }
@@ -340,7 +340,7 @@ try {
     }
 } catch {
     Write-Host "$FAIL" -ForegroundColor Red
-    Write-Host "Error: Failed to list files from B2" -ForegroundColor Red
+    Write-Host "Error: Failed to list release files from remote repository" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
 }
