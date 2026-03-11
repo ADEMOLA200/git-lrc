@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	gitops "github.com/HexmosTech/git-lrc/gitops"
 	hooksvc "github.com/HexmosTech/git-lrc/hooks"
 	"github.com/urfave/cli/v2"
 )
@@ -54,26 +54,13 @@ func removeHooksMeta(hooksPath string) error {
 }
 
 func writeManagedHookScripts(dir string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	scripts := map[string]string{
-		"pre-commit":         generatePreCommitHook(),
-		"prepare-commit-msg": generatePrepareCommitMsgHook(),
-		"commit-msg":         generateCommitMsgHook(),
-		"post-commit":        generatePostCommitHook(),
-	}
-
-	for name, content := range scripts {
-		path := filepath.Join(dir, name)
-		script := "#!/bin/sh\n" + content
-		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-			return fmt.Errorf("failed to write managed hook %s: %w", name, err)
-		}
-	}
-
-	return nil
+	return hooksvc.WriteManagedHookScripts(dir, hooksvc.TemplateConfig{
+		MarkerBegin:       lrcMarkerBegin,
+		MarkerEnd:         lrcMarkerEnd,
+		Version:           version,
+		CommitMessageFile: commitMessageFile,
+		PushRequestFile:   pushRequestFile,
+	})
 }
 
 // runHooksInstall installs dispatchers and managed hook scripts under either global core.hooksPath or the current repo hooks path when --local is used
@@ -384,8 +371,7 @@ func runHooksStatus(c *cli.Context) error {
 
 // isGitRepository checks if current directory is in a git repository
 func isGitRepository() bool {
-	_, err := os.Stat(".git")
-	return err == nil
+	return gitops.IsGitRepositoryCurrentDir()
 }
 
 // installHook installs or updates a hook with lrc managed section
@@ -469,27 +455,17 @@ func uninstallEditorWrapper(gitDir string) error {
 
 // readGitConfig reads a single git config key from the repository root.
 func readGitConfig(repoRoot, key string) (string, error) {
-	cmd := exec.Command("git", "config", "--get", key)
-	cmd.Dir = repoRoot
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return gitops.ReadGitConfig(repoRoot, key)
 }
 
 // setGitConfig sets a git config key in the given repository.
 func setGitConfig(repoRoot, key, value string) error {
-	cmd := exec.Command("git", "config", key, value)
-	cmd.Dir = repoRoot
-	return cmd.Run()
+	return gitops.SetGitConfig(repoRoot, key, value)
 }
 
 // unsetGitConfig removes a git config key in the given repository.
 func unsetGitConfig(repoRoot, key string) error {
-	cmd := exec.Command("git", "config", "--unset", key)
-	cmd.Dir = repoRoot
-	return cmd.Run()
+	return gitops.UnsetGitConfig(repoRoot, key)
 }
 
 // replaceLrcSection replaces the lrc-managed section in hook content

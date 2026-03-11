@@ -7,15 +7,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	uicfg "github.com/HexmosTech/git-lrc/ui"
-	"github.com/knadh/koanf/parsers/toml"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/v2"
 	"github.com/urfave/cli/v2"
 )
 
@@ -89,49 +84,5 @@ func runUI(c *cli.Context) error {
 }
 
 func loadUIRuntimeConfig() (*uiRuntimeConfig, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to determine home directory: %w", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".lrc.toml")
-	cfg := &uiRuntimeConfig{
-		APIURL:        defaultAPIURL,
-		ConfigPath:    configPath,
-		ConfigMissing: false,
-	}
-
-	if _, err := os.Stat(configPath); err != nil {
-		if os.IsNotExist(err) {
-			cfg.ConfigErr = fmt.Sprintf("config file not found at %s", configPath)
-			cfg.ConfigMissing = true
-			return cfg, nil
-		}
-		cfg.ConfigErr = fmt.Sprintf("failed to read config file %s: %v", configPath, err)
-		return cfg, nil
-	}
-
-	k := koanf.New(".")
-	if err := k.Load(file.Provider(configPath), toml.Parser()); err != nil {
-		cfg.ConfigErr = fmt.Sprintf("failed to load config file %s: %v", configPath, err)
-		return cfg, nil
-	}
-
-	apiURL := strings.TrimSpace(k.String("api_url"))
-	if apiURL == "" {
-		apiURL = defaultAPIURL
-	}
-
-	cfg.APIURL = apiURL
-	cfg.JWT = strings.TrimSpace(k.String("jwt"))
-	cfg.RefreshJWT = strings.TrimSpace(k.String("refresh_token"))
-	cfg.OrgID = strings.TrimSpace(k.String("org_id"))
-	cfg.UserEmail = strings.TrimSpace(k.String("user_email"))
-	cfg.UserID = strings.TrimSpace(k.String("user_id"))
-	cfg.FirstName = strings.TrimSpace(k.String("user_first_name"))
-	cfg.LastName = strings.TrimSpace(k.String("user_last_name"))
-	cfg.AvatarURL = strings.TrimSpace(k.String("avatar_url"))
-	cfg.OrgName = strings.TrimSpace(k.String("org_name"))
-
-	return cfg, nil
+	return uicfg.LoadRuntimeConfig(defaultAPIURL)
 }
