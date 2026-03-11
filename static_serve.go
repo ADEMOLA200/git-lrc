@@ -8,134 +8,23 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+
+	"github.com/HexmosTech/git-lrc/result"
 )
 
 //go:embed static/*
 var staticFiles embed.FS
 
-// JSONTemplateData is the data structure passed to the Preact app as JSON
-// It mirrors HTMLTemplateData but is serialized to JSON for the frontend
-type JSONTemplateData struct {
-	GeneratedTime      string         `json:"GeneratedTime"`
-	Summary            string         `json:"Summary"`
-	Status             string         `json:"Status"`
-	TotalFiles         int            `json:"TotalFiles"`
-	TotalComments      int            `json:"TotalComments"`
-	Files              []JSONFileData `json:"Files"`
-	HasSummary         bool           `json:"HasSummary"`
-	FriendlyName       string         `json:"FriendlyName"`
-	Interactive        bool           `json:"Interactive"`
-	IsPostCommitReview bool           `json:"IsPostCommitReview"`
-	InitialMsg         string         `json:"InitialMsg"`
-	ReviewID           string         `json:"ReviewID"`
-	APIURL             string         `json:"APIURL"`
-	APIKey             string         `json:"APIKey"`
-}
-
-// JSONFileData represents a file for JSON serialization
-type JSONFileData struct {
-	ID           string         `json:"ID"`
-	FilePath     string         `json:"FilePath"`
-	HasComments  bool           `json:"HasComments"`
-	CommentCount int            `json:"CommentCount"`
-	Hunks        []JSONHunkData `json:"Hunks"`
-}
-
-// JSONHunkData represents a hunk for JSON serialization
-type JSONHunkData struct {
-	Header string         `json:"Header"`
-	Lines  []JSONLineData `json:"Lines"`
-}
-
-// JSONLineData represents a line in a diff for JSON serialization
-type JSONLineData struct {
-	OldNum    string            `json:"OldNum"`
-	NewNum    string            `json:"NewNum"`
-	Content   string            `json:"Content"`
-	Class     string            `json:"Class"`
-	IsComment bool              `json:"IsComment"`
-	Comments  []JSONCommentData `json:"Comments,omitempty"`
-}
-
-// JSONCommentData represents a comment for JSON serialization
-type JSONCommentData struct {
-	Severity    string `json:"Severity"`
-	BadgeClass  string `json:"BadgeClass"`
-	Category    string `json:"Category"`
-	Content     string `json:"Content"`
-	HasCategory bool   `json:"HasCategory"`
-	Line        int    `json:"Line"`
-	FilePath    string `json:"FilePath"`
-}
-
-// convertToJSONData converts HTMLTemplateData to JSONTemplateData
-func convertToJSONData(data *HTMLTemplateData) *JSONTemplateData {
-	files := make([]JSONFileData, len(data.Files))
-	for i, file := range data.Files {
-		hunks := make([]JSONHunkData, len(file.Hunks))
-		for j, hunk := range file.Hunks {
-			lines := make([]JSONLineData, len(hunk.Lines))
-			for k, line := range hunk.Lines {
-				var comments []JSONCommentData
-				if line.IsComment {
-					comments = make([]JSONCommentData, len(line.Comments))
-					for l, comment := range line.Comments {
-						comments[l] = JSONCommentData{
-							Severity:    comment.Severity,
-							BadgeClass:  comment.BadgeClass,
-							Category:    comment.Category,
-							Content:     comment.Content,
-							HasCategory: comment.HasCategory,
-							Line:        comment.Line,
-							FilePath:    comment.FilePath,
-						}
-					}
-				}
-				lines[k] = JSONLineData{
-					OldNum:    line.OldNum,
-					NewNum:    line.NewNum,
-					Content:   line.Content,
-					Class:     line.Class,
-					IsComment: line.IsComment,
-					Comments:  comments,
-				}
-			}
-			hunks[j] = JSONHunkData{
-				Header: hunk.Header,
-				Lines:  lines,
-			}
-		}
-		files[i] = JSONFileData{
-			ID:           file.ID,
-			FilePath:     file.FilePath,
-			HasComments:  file.HasComments,
-			CommentCount: file.CommentCount,
-			Hunks:        hunks,
-		}
-	}
-
-	return &JSONTemplateData{
-		GeneratedTime:      data.GeneratedTime,
-		Summary:            data.Summary,
-		Status:             data.Status,
-		TotalFiles:         data.TotalFiles,
-		TotalComments:      data.TotalComments,
-		Files:              files,
-		HasSummary:         data.HasSummary,
-		FriendlyName:       data.FriendlyName,
-		Interactive:        data.Interactive,
-		IsPostCommitReview: data.IsPostCommitReview,
-		InitialMsg:         data.InitialMsg,
-		ReviewID:           data.ReviewID,
-		APIURL:             data.APIURL,
-		APIKey:             data.APIKey,
-	}
-}
+type JSONTemplateData = result.JSONTemplateData
+type JSONFileData = result.JSONFileData
+type JSONHunkData = result.JSONHunkData
+type JSONLineData = result.JSONLineData
+type JSONCommentData = result.JSONCommentData
 
 // renderPreactHTML renders the Preact-based HTML with embedded JSON data
 func renderPreactHTML(data *HTMLTemplateData) (string, error) {
 	// Convert to JSON-serializable format
-	jsonData := convertToJSONData(data)
+	jsonData := result.ConvertToJSONData(data)
 
 	// Serialize to JSON
 	jsonBytes, err := json.Marshal(jsonData)

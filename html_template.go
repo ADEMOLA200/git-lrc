@@ -6,63 +6,14 @@ import (
 	"time"
 
 	"github.com/HexmosTech/git-lrc/internal/naming"
+	"github.com/HexmosTech/git-lrc/result"
 )
 
-// Data structures for HTML template rendering
-// HTMLTemplateData contains all data needed for the HTML template
-// This holds all the template related data structures
-type HTMLTemplateData struct {
-	GeneratedTime      string
-	Summary            string
-	Status             string
-	TotalFiles         int
-	TotalComments      int
-	Files              []HTMLFileData
-	HasSummary         bool
-	FriendlyName       string
-	Interactive        bool
-	IsPostCommitReview bool // True when reviewing historical commit (--commit mode)
-	InitialMsg         string
-	ReviewID           string // For polling events
-	APIURL             string // For polling events
-	APIKey             string // For authenticated API calls
-}
-
-// HTMLFileData represents a file for HTML rendering
-type HTMLFileData struct {
-	ID           string
-	FilePath     string
-	HasComments  bool
-	CommentCount int
-	Hunks        []HTMLHunkData
-}
-
-// HTMLHunkData represents a hunk for HTML rendering
-type HTMLHunkData struct {
-	Header string
-	Lines  []HTMLLineData
-}
-
-// HTMLLineData represents a line in a diff
-type HTMLLineData struct {
-	OldNum    string
-	NewNum    string
-	Content   string
-	Class     string
-	IsComment bool
-	Comments  []HTMLCommentData
-}
-
-// HTMLCommentData represents a comment for HTML rendering
-type HTMLCommentData struct {
-	Severity    string
-	BadgeClass  string
-	Category    string
-	Content     string
-	HasCategory bool
-	Line        int
-	FilePath    string
-}
+type HTMLTemplateData = result.HTMLTemplateData
+type HTMLFileData = result.HTMLFileData
+type HTMLHunkData = result.HTMLHunkData
+type HTMLLineData = result.HTMLLineData
+type HTMLCommentData = result.HTMLCommentData
 
 // prepareHTMLData converts the API response to template data
 func prepareHTMLData(result *diffReviewResponse, interactive bool, isPostCommitReview bool, initialMsg, reviewID, apiURL, apiKey string) *HTMLTemplateData {
