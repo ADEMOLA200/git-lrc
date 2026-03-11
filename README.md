@@ -1,27 +1,19 @@
-<div align="center">
+<div align="left">
 
 | [🇩🇰 Dansk](readme/README.da.md) | [🇪🇸 Español](readme/README.es.md) | [🇮🇷 Farsi](readme/README.fa.md) | [🇫🇮 Suomi](readme/README.fi.md) | [🇯🇵 日本語](readme/README.ja.md) | [🇳🇴 Norsk](readme/README.nn.md) | [🇵🇹 Português](readme/README.pt.md) | [🇷🇺 Русский](readme/README.ru.md) | [🇦🇱 Shqip](readme/README.sq.md) | [🇨🇳 中文](readme/README.zh.md) |
 
-</div>
-
-<div align="center">
+<br />
+<br />
 
 <img width="60" alt="git-lrc logo" src="https://hexmos.com/freedevtools/public/lr_logo.svg" />
+<strong style="font-size:2em; display:block; margin:0.37em 0;">git-lrc</strong>
 
-<strong style="font-size:2em; display:block; margin:0.67em 0;">git-lrc</strong>
-
-
-<strong style="font-size:1.5em; display:block; margin:0.67em 0;">Free, Unlimited AI Code Reviews That Run on Commit</strong>
+<strong style="font-size:1.5em; display:block; margin:0.37em 0;">Free, Unlimited AI Code Reviews That Run on Commit</strong>
 
 <br />
-
-</div>
-
 <br />
 
-<div align="center">
 <a href="https://goreportcard.com/report/github.com/HexmosTech/git-lrc" target="_blank" rel="noopener noreferrer"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/HexmosTech/git-lrc"></a>
-<br />
 <br />
 
 <a href="https://www.producthunt.com/products/git-lrc?embed=true&amp;utm_source=badge-top-post-badge&amp;utm_medium=badge&amp;utm_campaign=badge-git-lrc" target="_blank" rel="noopener noreferrer"><img alt="git-lrc - Free, unlimited AI code reviews that run on commit | Product Hunt" width="200" src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1079262&amp;theme=light&amp;period=daily&amp;t=1771749170868"></a>
@@ -29,7 +21,7 @@
 &nbsp;
 <a href="https://fazier.com/launches/git-lrc" target="_blank" rel="noopener noreferrer"><img src="https://fazier.com/api/v1/public/badges/embed_image.svg?launch_id=7598&amp;badge_type=daily&amp;theme=light" width="200" alt="Fazier badge" /></a>
 
-<center>
+</div>
 
 <br />
 <br />
