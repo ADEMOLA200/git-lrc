@@ -41,6 +41,21 @@ import (
 	"golang.org/x/term"
 )
 
+func newRuntimeHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) == 0 {
+				return nil
+			}
+			if req.URL.Host != via[0].URL.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+}
+
 func runReviewWithOptions(opts reviewopts.Options) error {
 	verbose := opts.Verbose
 	defer func() {
@@ -531,7 +546,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 				}
 				req.Header.Set("X-API-Key", config.APIKey)
 
-				client := &http.Client{Timeout: 10 * time.Second}
+				client := newRuntimeHTTPClient(10 * time.Second)
 				resp, err := client.Do(req)
 				if err != nil {
 					if verbose {

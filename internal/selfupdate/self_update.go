@@ -72,6 +72,21 @@ type updateLockMetadata struct {
 
 var autoUpdateStartOnce sync.Once
 
+func newSelfUpdateHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) == 0 {
+				return nil
+			}
+			if req.URL.Host != via[0].URL.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+}
+
 // b2ListRequest models the B2 list files request
 type b2ListRequest struct {
 	BucketID      string `json:"bucketId"`
@@ -139,7 +154,7 @@ func fetchLatestVersionFromB2() (string, error) {
 	}
 	authReq.SetBasicAuth(b2KeyID, b2AppKey)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := newSelfUpdateHTTPClient(30 * time.Second)
 	authResp, err := client.Do(authReq)
 	if err != nil {
 		return "", fmt.Errorf("B2 auth request failed: %w", err)
@@ -598,7 +613,7 @@ func downloadVersionBinaryFromB2(versionTag string) (string, error) {
 		binaryName = "lrc.exe"
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := newSelfUpdateHTTPClient(60 * time.Second)
 	authData, err := b2Authorize(client)
 	if err != nil {
 		return "", err

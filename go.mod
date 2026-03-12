@@ -1,6 +1,6 @@
 module github.com/HexmosTech/git-lrc
 
-go 1.24.3
+go 1.25.8
 
 require (
 	github.com/gofrs/flock v0.13.0

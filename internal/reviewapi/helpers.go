@@ -18,6 +18,21 @@ import (
 	"github.com/HexmosTech/git-lrc/internal/reviewmodel"
 )
 
+func newReviewHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) == 0 {
+				return nil
+			}
+			if req.URL.Host != via[0].URL.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+}
+
 func RunGitCommand(args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	output, err := cmd.Output()
@@ -128,7 +143,7 @@ func SubmitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (re
 		log.Printf("POST %s", endpoint)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := newReviewHTTPClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return reviewmodel.DiffReviewCreateResponse{}, fmt.Errorf("failed to send request: %w", err)
@@ -173,7 +188,7 @@ func TrackCLIUsage(apiURL, apiKey string, verbose bool) {
 
 	req.Header.Set("X-API-Key", apiKey)
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := newReviewHTTPClient(5 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		if verbose {
@@ -202,6 +217,8 @@ func PollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 		log.Printf("Polling for review completion (timeout: %v)...", timeout)
 	}
 
+	client := newReviewHTTPClient(30 * time.Second)
+
 	for time.Now().Before(deadline) {
 		select {
 		case <-cancel:
@@ -218,7 +235,6 @@ func PollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 
 		req.Header.Set("X-API-Key", apiKey)
 
-		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)

@@ -37,7 +37,7 @@ func ProvisionLiveReviewUser(cbData *HexmosCallbackData, logf func(format string
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cbData.Result.JWT)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := newSetupHTTPClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to contact LiveReview API: %w", err)

@@ -1,4 +1,4 @@
-.PHONY: build build-all build-local build-local-test run run-fake-review bump release clean test testall test-pkg upload-secrets download-secrets
+.PHONY: build build-all build-local build-local-test run run-fake-review bump release clean test testall test-pkg upload-secrets download-secrets security-govulncheck security-osv security-triage
 
 # Go parameters
 GOCMD=go
@@ -81,6 +81,33 @@ test-pkg:
 		exit 1; \
 	fi
 	$(GOTEST) -count=1 $(PKG)
+
+# Run Go vulnerability analysis for reachable vulns.
+security-govulncheck:
+	@command -v govulncheck >/dev/null 2>&1 || { \
+		echo "❌ govulncheck not found. Install with: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
+		exit 1; \
+	}
+	@govulncheck ./...
+
+# Run OSV scanner against this repository.
+security-osv:
+	@command -v osv-scanner >/dev/null 2>&1 || { \
+		echo "❌ osv-scanner not found. Install from https://github.com/google/osv-scanner"; \
+		exit 1; \
+	}
+	@mkdir -p security_issues
+	@osv-scanner --format json . > security_issues/osv-scanner-latest.json
+	@echo "✅ Wrote security_issues/osv-scanner-latest.json"
+
+# Regenerate machine-readable and markdown triage artifacts from the latest OSV report.
+security-triage: security-osv
+	@python3 scripts/extract_osv_report.py \
+		--input security_issues/osv-scanner-latest.json \
+		--csv security_issues/osv-triage-latest.csv \
+		--md security_issues/osv-triage-latest.md
+	@echo "✅ Wrote security_issues/osv-triage-latest.csv"
+	@echo "✅ Wrote security_issues/osv-triage-latest.md"
 
 # Upload .env variables to GitHub repo variables
 upload-secrets:

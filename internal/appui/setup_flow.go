@@ -108,7 +108,10 @@ func runHexmosLoginFlow(slog *setupLog) (*setupResult, error) {
 
 	mux := http.NewServeMux()
 
-	signinURL := setuptpl.BuildSigninURL(callbackURL)
+	signinURL, err := setuptpl.BuildSigninURL(callbackURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build signin url: %w", err)
+	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

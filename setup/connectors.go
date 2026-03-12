@@ -31,7 +31,7 @@ func ValidateGeminiKey(result *SetupResult, geminiKey string) (bool, string, err
 	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
 	req.Header.Set("X-Org-Context", result.OrgID)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := newSetupHTTPClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to validate key: %w", err)
@@ -78,7 +78,7 @@ func CreateGeminiConnector(result *SetupResult, geminiKey string) error {
 	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
 	req.Header.Set("X-Org-Context", result.OrgID)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := newSetupHTTPClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to create connector: %w", err)
