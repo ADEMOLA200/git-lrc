@@ -79,7 +79,7 @@ You can provide configuration in three ways (in order of precedence):
 3. **Config file**: Create `~/.lrc.toml` with:
    ```toml
    # Your LiveReview API key
-   api_key = "lr_example_token"
+  api_key = "lr_example_token"
    
    # Your LiveReview API endpoint (base URL, without /api suffix)
    # The CLI automatically appends /api/v1/diff-review
