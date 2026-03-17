@@ -378,8 +378,8 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	// In precommit mode, ensure unbuffered output
 	if opts.Precommit {
 		// Force flush and set unbuffered
-		os.Stdout.Sync()
-		os.Stderr.Sync()
+		syncFileSafely(os.Stdout)
+		syncFileSafely(os.Stderr)
 	}
 
 	// Track CLI usage (best-effort, non-blocking)
@@ -1132,7 +1132,7 @@ func runCommitAndMaybePush(message string, push bool, verbose bool) error {
 
 	// Ensure git starts printing on a fresh terminal line.
 	fmt.Println()
-	os.Stdout.Sync()
+	syncFileSafely(os.Stdout)
 
 	commitCmd := exec.Command("git", commitArgs...)
 	if msg == "" {

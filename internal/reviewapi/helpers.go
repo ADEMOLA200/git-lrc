@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HexmosTech/git-lrc/interactive"
 	"github.com/HexmosTech/git-lrc/internal/reviewmodel"
 	"github.com/HexmosTech/git-lrc/network"
 )
@@ -161,7 +162,7 @@ func PollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 	deadline := time.Now().Add(timeout)
 	start := time.Now()
 	fmt.Printf("Waiting for review completion (poll every %s, timeout %s)...\r\n", pollInterval, timeout)
-	os.Stdout.Sync()
+	interactive.SyncFileSafely(os.Stdout)
 
 	if verbose {
 		log.Printf("Polling for review completion (timeout: %v)...", timeout)
@@ -173,7 +174,7 @@ func PollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 		select {
 		case <-cancel:
 			fmt.Printf("\r\n")
-			os.Stdout.Sync()
+			interactive.SyncFileSafely(os.Stdout)
 			return nil, ErrPollCancelled
 		default:
 		}
@@ -196,20 +197,20 @@ func PollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 
 		statusLine := fmt.Sprintf("Status: %s | elapsed: %s", result.Status, time.Since(start).Truncate(time.Second))
 		fmt.Printf("\r%-80s", statusLine)
-		os.Stdout.Sync()
+		interactive.SyncFileSafely(os.Stdout)
 		if verbose {
 			log.Printf("%s", statusLine)
 		}
 
 		if result.Status == "completed" {
 			fmt.Printf("\r%-80s\r\n", statusLine)
-			os.Stdout.Sync()
+			interactive.SyncFileSafely(os.Stdout)
 			return &result, nil
 		}
 
 		if result.Status == "failed" {
 			fmt.Printf("\r%-80s\r\n", statusLine)
-			os.Stdout.Sync()
+			interactive.SyncFileSafely(os.Stdout)
 			reason := strings.TrimSpace(result.Message)
 			if reason == "" {
 				reason = "no additional details provided"
