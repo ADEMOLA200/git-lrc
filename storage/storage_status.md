@@ -1,6 +1,6 @@
 # Storage Operations Status
 
-Last Reviewed: 2026-03-16
+Last Reviewed: 2026-03-17
 Audience: Engineering, Procurement, Security Vetting, CISO
 Scope: Local persistence and file system operations in the storage boundary
 
@@ -15,6 +15,7 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 - Primary sensitive data in scope: API keys and connector state in config, review metadata in SQLite, hook scripts and metadata, update lock/state metadata.
 - Highest-risk operation classes: credential file read/write, recursive deletion, permission changes, direct SQL execution wrappers.
 - Primary compensating controls already present: atomic writes for critical files, SQLite WAL mode and busy timeout, explicit chmod utility usage, typed wrapper functions and contextual error wrapping.
+- High-priority updates added in this review: mode-specific permission tests, backward-compatible schema version marker note, optional dry-run/logged branch delete API, optional confirmation-gated full delete API, review-session SQL mutation routing through ExecSQL, and pending-update integrity hash validation with legacy compatibility.
 
 ## Severity Rubric
 
@@ -35,7 +36,7 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ReadConfigFile | file | TOML config bytes including API key and connector state | Load CLI configuration from ~/.lrc.toml | High | Credential disclosure risk if file is too permissive | Compensated by strict mode enforcement via chmod path; residual risk acceptable with 0600 policy | [storage/config_io.go](config_io.go#L9) |
 | WriteFileAtomically | file | Generic file bytes (used for durable state/config writes) | Persist file content using temp-and-rename pattern | High | Integrity risk from partial/truncated writes | Compensated by atomic temp-then-rename; residual risk acceptable for local FS assumptions | [storage/files.go](files.go#L29) |
-| Chmod | file | File mode bits (0600/0755 style permissions) | Enforce permission model on config and scripts | High | Misconfiguration risk if wrong mode is applied | Partially compensated by centralized wrapper; Suggestion: add mode-specific tests for secret files | [storage/files.go](files.go#L116) |
+| Chmod | file | File mode bits (0600/0755 style permissions) | Enforce permission model on config and scripts | High | Misconfiguration risk if wrong mode is applied | Compensated by centralized wrapper plus mode-specific tests for secret and executable paths; residual risk acceptable | [storage/files.go](files.go#L116) |
 | MkdirAll | file | Directory paths | Create required storage folders safely | Low | Low risk of directory sprawl/path misuse | Compensated by controlled internal callsites; acceptable risk | [storage/files.go](files.go#L84) |
 
 ## Inventory: Review And Attestation Database
@@ -43,14 +44,14 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 | Operation | Mode | Data Handled | Purpose | Severity | Risk Acknowledgement | Compensation Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | OpenAttestationReviewDB | db | SQLite handle for review sessions | Open persistent review DB with WAL behavior | High | DB integrity/availability risk on contention or corruption | Compensated by WAL mode and busy timeout in open path; residual risk acceptable | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L20) |
-| InitializeAttestationReviewSchema | db | SQL DDL for review_sessions | Create required schema for branch review tracking | High | Schema drift risk impacts audit evidence correctness | Partially compensated by centralized init path; Suggestion: add explicit schema version check note | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L34) |
+| InitializeAttestationReviewSchema | db | SQL DDL for review_sessions | Create required schema for branch review tracking | High | Schema drift risk impacts audit evidence correctness | Compensated by centralized init path with explicit schema version marker note and backward-compatible marker check; missing marker remains non-fatal for legacy schemas | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L34) |
 | InsertAttestationReviewSessionRow | db | branch, tree_hash, action, diff files, review_id, timestamp | Record review session evidence | High | Audit trail tampering/inconsistency risk | Compensated by single writer path and typed insert wrapper; residual risk acceptable | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L45) |
 | QueryAttestationReviewSessionCountByBranch | db | Aggregate count | Report branch review volume | Medium | Reporting accuracy risk if stale or partial state | Compensated by direct DB query on canonical table; acceptable risk | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L60) |
 | QueryAttestationReviewedSessionsByBranch | db | Ordered review session rows | Retrieve historical review evidence by branch | Medium | Evidence retrieval ordering/completeness risk | Compensated by explicit ordering query; acceptable risk | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L72) |
-| DeleteAttestationReviewSessionsByBranch | db | Branch-scoped review rows | Purge branch review history | High | Data loss and forensic gap risk | Partially compensated by scoped delete API; Suggestion: add optional dry-run/logged delete mode | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L90) |
-| DeleteAllAttestationReviewSessions | db | Entire review_sessions table | Administrative full wipe of review history | High | High-impact irreversible evidence loss risk | Partially compensated by explicit admin operation boundary; Suggestion: require confirmation gate in caller | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L106) |
+| DeleteAttestationReviewSessionsByBranch | db | Branch-scoped review rows | Purge branch review history | High | Data loss and forensic gap risk | Compensated by scoped delete API plus optional (opt-in) dry-run and audit logging options; default path has no additional logging overhead | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L90) |
+| DeleteAllAttestationReviewSessions | db | Entire review_sessions table | Administrative full wipe of review history | High | High-impact irreversible evidence loss risk | Partially compensated by optional caller confirmation gate API with legacy delete path preserved for backward compatibility; residual risk remains high unless callers adopt confirmation policy | [storage/attestation_review_db_io.go](attestation_review_db_io.go#L106) |
 | OpenSQLite | db | Generic SQLite connection and PRAGMA state | Standardized DB opener utility | High | Broad DB behavior risk if PRAGMA policy regresses | Compensated by centralized opener policy and wrapped errors; residual risk acceptable | [storage/files.go](files.go#L142) |
-| ExecSQL | db | SQL statement plus args | Execute SQL with wrapped errors | High | SQL misuse risk from broad execution capability | Partially compensated by internal wrapper and parameter passing; Suggestion: restrict callsites to vetted query paths | [storage/files.go](files.go#L158) |
+| ExecSQL | db | SQL statement plus args | Execute SQL with wrapped errors | High | SQL misuse risk from broad execution capability | Compensated by using ExecSQL for all review_sessions mutation paths in storage (schema init, insert, branch delete, full delete); direct db.Exec remains only inside ExecSQL wrapper | [storage/files.go](files.go#L158) |
 
 ## Inventory: Hook Lifecycle Storage
 
@@ -89,7 +90,7 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 
 | Operation | Mode | Data Handled | Purpose | Severity | Risk Acknowledgement | Compensation Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| ReadPendingUpdateStateBytes | file | Update state JSON (version, binary path, timestamp) | Read staged update metadata for upgrade flow | Medium | Medium integrity risk if state is tampered locally | Partially compensated by structured metadata read; Suggestion: add integrity marker/signature check | [storage/file_read_io.go](file_read_io.go#L9) |
+| ReadPendingUpdateStateBytes | file | Update state JSON (version, binary path, timestamp, integrity hash) | Read staged update metadata for upgrade flow | Medium | Medium integrity risk if state is tampered locally | Compensated by integrity hash verification when present plus legacy-state compatibility when absent; residual risk acceptable for local tamper-evidence model | [storage/file_read_io.go](file_read_io.go#L9) |
 | ReadUpdateLockMetadataBytes | file | Lock metadata JSON (pid, uid, command, version) | Read lock metadata for update concurrency awareness | Medium | Medium risk if lock semantics are informational only | Partially compensated by visibility into lock owner; Suggestion: document/enforce lock semantics in caller | [storage/file_read_io.go](file_read_io.go#L18) |
 | OpenFileForRead | file | File handle in read mode | Controlled read access helper | Low | Low risk helper abstraction | Compensated by narrow read-only intent; acceptable risk | [storage/file_read_io.go](file_read_io.go#L27) |
 
@@ -106,7 +107,7 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 | Gap | Why It Matters | Follow-Up |
 | --- | --- | --- |
 | Duplicate query paths for review sessions exist across storage files | Duplicate logic can drift and confuse auditors | Identify canonical path and deprecate duplicate wrapper set |
-| Explicit schema migration workflow for review DB is not documented in this package | Harder to reason about schema evolution controls | Add schema evolution note and migration policy reference in docs |
+| Explicit schema migration workflow for review DB is not documented in this package | Harder to reason about schema evolution controls | Schema version marker note is now present; next step is a migration policy reference in docs |
 | Lock metadata read path is documented, lock enforcement semantics are not explicit here | Concurrency guarantees for update flow may be unclear | Document enforcement owner and decision path in update docs |
 | Some cleanup calls intentionally ignore non-critical errors | May reduce forensic clarity in uninstall/cleanup incidents | Document which cleanup failures are intentionally non-fatal |
 

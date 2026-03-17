@@ -116,7 +116,31 @@ func CleanupReviewSessions(db *sql.DB, branch string) (int64, error) {
 	return storage.DeleteAttestationReviewSessionsByBranch(db, branch)
 }
 
+// CleanupReviewSessionsDryRun returns how many rows would be removed for a branch without deleting.
+func CleanupReviewSessionsDryRun(db *sql.DB, branch string, logf func(format string, args ...any)) (int64, error) {
+	return storage.DeleteAttestationReviewSessionsByBranchWithOptions(db, branch, storage.DeleteBranchSessionsOptions{
+		DryRun: true,
+		Logf:   logf,
+	})
+}
+
+// CleanupReviewSessionsWithLog deletes branch sessions and emits optional storage audit logging.
+func CleanupReviewSessionsWithLog(db *sql.DB, branch string, logf func(format string, args ...any)) (int64, error) {
+	return storage.DeleteAttestationReviewSessionsByBranchWithOptions(db, branch, storage.DeleteBranchSessionsOptions{
+		Logf: logf,
+	})
+}
+
 // CleanupAllSessions deletes all sessions from the review database.
 func CleanupAllSessions(db *sql.DB) (int64, error) {
 	return storage.DeleteAllAttestationReviewSessions(db)
+}
+
+// CleanupAllSessionsConfirmed deletes all sessions and requires explicit caller confirmation.
+func CleanupAllSessionsConfirmed(db *sql.DB, confirmed bool, logf func(format string, args ...any)) (int64, error) {
+	return storage.DeleteAllAttestationReviewSessionsWithOptions(db, storage.DeleteAllSessionsOptions{
+		RequireConfirmation: true,
+		Confirmed:           confirmed,
+		Logf:                logf,
+	})
 }

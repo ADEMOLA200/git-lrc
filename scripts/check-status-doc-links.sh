@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DOCS=("storage/status.md" "network/status.md")
+DOCS=("storage/storage_status.md" "network/network_status.md")
 
 failures=0
 
@@ -109,4 +109,4 @@ if [[ "$failures" -ne 0 ]]; then
   exit 1
 fi
 
-echo "Status-doc link check passed for storage/status.md and network/status.md."
+echo "Status-doc link check passed for ${DOCS[*]}."

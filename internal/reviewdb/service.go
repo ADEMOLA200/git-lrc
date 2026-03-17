@@ -16,6 +16,8 @@ type attestationHunkRange = attestation.HunkRange
 type coverageResult = attestation.CoverageResult
 
 const reviewDBSchema = `
+-- schema_version:1
+-- NOTE: bump schema_version when review_sessions schema changes.
 CREATE TABLE IF NOT EXISTS review_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tree_hash TEXT NOT NULL,

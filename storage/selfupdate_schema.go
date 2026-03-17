@@ -4,6 +4,7 @@ type PendingUpdateState struct {
 	Version          string `json:"version"`
 	StagedBinaryPath string `json:"staged_binary_path"`
 	DownloadedAt     string `json:"downloaded_at"`
+	IntegrityHash    string `json:"integrity_hash,omitempty"`
 }
 
 type UpdateLockMetadata struct {

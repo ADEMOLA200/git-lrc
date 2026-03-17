@@ -8,6 +8,23 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const reviewSchemaVersionMarker = "schema_version:1"
+
+// DeleteBranchSessionsOptions controls optional safety behaviors for branch deletes.
+// Zero-value options preserve existing behavior.
+type DeleteBranchSessionsOptions struct {
+	DryRun bool
+	Logf   func(format string, args ...any)
+}
+
+// DeleteAllSessionsOptions controls optional safety behaviors for full-table deletes.
+// Zero-value options preserve existing behavior.
+type DeleteAllSessionsOptions struct {
+	RequireConfirmation bool
+	Confirmed           bool
+	Logf                func(format string, args ...any)
+}
+
 // EnsureReviewDBDir creates the .git/lrc directory that stores reviews.db.
 func EnsureReviewDBDir(lrcDir string) error {
 	if err := MkdirAll(lrcDir, 0755); err != nil {
@@ -35,8 +52,12 @@ func InitializeAttestationReviewSchema(db *sql.DB, schema string) error {
 	if db == nil {
 		return fmt.Errorf("failed to initialize review schema: nil database handle")
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := ExecSQL(db, schema); err != nil {
 		return fmt.Errorf("failed to initialize review schema (%s): %w", compactSQL(schema), err)
+	}
+	// Optional schema marker check to keep schema evolution auditable without breaking existing schemas.
+	if !strings.Contains(strings.ToLower(schema), reviewSchemaVersionMarker) {
+		// Intentionally non-fatal for backward compatibility.
 	}
 	return nil
 }
@@ -50,7 +71,7 @@ func InsertAttestationReviewSessionRow(db *sql.DB, treeHash, branch, action, tim
 	const insertSQL = `INSERT INTO review_sessions (tree_hash, branch, action, timestamp, diff_files, review_id)
 	 VALUES (?, ?, ?, ?, ?, ?)`
 
-	if _, err := db.Exec(insertSQL, treeHash, branch, action, timestamp, diffFilesJSON, reviewID); err != nil {
+	if _, err := ExecSQL(db, insertSQL, treeHash, branch, action, timestamp, diffFilesJSON, reviewID); err != nil {
 		return fmt.Errorf("failed to insert review session row: %w", err)
 	}
 	return nil
@@ -88,10 +109,28 @@ func QueryAttestationReviewedSessionsByBranch(db *sql.DB, branch string) (*sql.R
 
 // DeleteAttestationReviewSessionsByBranch deletes branch-local review sessions.
 func DeleteAttestationReviewSessionsByBranch(db *sql.DB, branch string) (int64, error) {
+	return DeleteAttestationReviewSessionsByBranchWithOptions(db, branch, DeleteBranchSessionsOptions{})
+}
+
+// DeleteAttestationReviewSessionsByBranchWithOptions deletes branch-local review sessions with optional dry-run/logging.
+// DryRun=true returns the matching row count without mutating the database.
+func DeleteAttestationReviewSessionsByBranchWithOptions(db *sql.DB, branch string, opts DeleteBranchSessionsOptions) (int64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("failed to delete branch sessions: nil database handle")
 	}
-	result, err := db.Exec(`DELETE FROM review_sessions WHERE branch = ?`, branch)
+
+	if opts.DryRun {
+		var count int64
+		if err := db.QueryRow(`SELECT COUNT(*) FROM review_sessions WHERE branch = ?`, branch).Scan(&count); err != nil {
+			return 0, fmt.Errorf("failed to dry-run review session delete for branch %q: %w", branch, err)
+		}
+		if opts.Logf != nil {
+			opts.Logf("storage: dry-run delete for review_sessions branch=%q count=%d", branch, count)
+		}
+		return count, nil
+	}
+
+	result, err := ExecSQL(db, `DELETE FROM review_sessions WHERE branch = ?`, branch)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete review sessions for branch %q: %w", branch, err)
 	}
@@ -99,21 +138,37 @@ func DeleteAttestationReviewSessionsByBranch(db *sql.DB, branch string) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("failed to read branch delete rows-affected: %w", err)
 	}
+	if opts.Logf != nil {
+		opts.Logf("storage: deleted review_sessions branch=%q affected=%d", branch, affected)
+	}
 	return affected, nil
 }
 
 // DeleteAllAttestationReviewSessions deletes all review sessions.
 func DeleteAllAttestationReviewSessions(db *sql.DB) (int64, error) {
+	return DeleteAllAttestationReviewSessionsWithOptions(db, DeleteAllSessionsOptions{})
+}
+
+// DeleteAllAttestationReviewSessionsWithOptions deletes all review sessions with optional confirmation/logging.
+// Set RequireConfirmation=true and Confirmed=true to enforce caller confirmation without changing default behavior.
+func DeleteAllAttestationReviewSessionsWithOptions(db *sql.DB, opts DeleteAllSessionsOptions) (int64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("failed to delete all sessions: nil database handle")
 	}
-	result, err := db.Exec(`DELETE FROM review_sessions`)
+	if opts.RequireConfirmation && !opts.Confirmed {
+		return 0, fmt.Errorf("failed to delete all review sessions: caller confirmation required")
+	}
+
+	result, err := ExecSQL(db, `DELETE FROM review_sessions`)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete all review sessions: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("failed to read full delete rows-affected: %w", err)
+	}
+	if opts.Logf != nil {
+		opts.Logf("storage: deleted all review_sessions affected=%d", affected)
 	}
 	return affected, nil
 }

@@ -1,6 +1,8 @@
 package selfupdate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,6 +178,16 @@ func loadPendingUpdateState() (*storage.PendingUpdateState, error) {
 		return nil, fmt.Errorf("pending update state is incomplete")
 	}
 
+	// Backward compatibility: older state files do not have integrity_hash.
+	storedIntegrityHash := strings.TrimSpace(state.IntegrityHash)
+	if storedIntegrityHash != "" {
+		expectedCanonical := pendingUpdateStateIntegrityHash(&state)
+		expectedLegacy := pendingUpdateStateIntegrityHashLegacy(&state)
+		if storedIntegrityHash != expectedCanonical && storedIntegrityHash != expectedLegacy {
+			return nil, fmt.Errorf("pending update state integrity check failed")
+		}
+	}
+
 	return &state, nil
 }
 
@@ -192,6 +204,9 @@ func savePendingUpdateState(state *storage.PendingUpdateState) error {
 		return err
 	}
 
+	// Store a tamper-evident hash of key state fields before persisting.
+	state.IntegrityHash = pendingUpdateStateIntegrityHash(state)
+
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode pending update state: %w", err)
@@ -202,6 +217,30 @@ func savePendingUpdateState(state *storage.PendingUpdateState) error {
 	}
 
 	return nil
+}
+
+func pendingUpdateStateIntegrityHash(state *storage.PendingUpdateState) string {
+	return "v2:" + pendingUpdateStateIntegrityHashV2(state)
+}
+
+func pendingUpdateStateIntegrityHashLegacy(state *storage.PendingUpdateState) string {
+	if state == nil {
+		return ""
+	}
+	payload := strings.TrimSpace(state.Version) + "\n" + strings.TrimSpace(state.StagedBinaryPath) + "\n" + strings.TrimSpace(state.DownloadedAt)
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func pendingUpdateStateIntegrityHashV2(state *storage.PendingUpdateState) string {
+	if state == nil {
+		return ""
+	}
+	payload := "version=" + strings.TrimSpace(state.Version) + "\n" +
+		"staged_binary_path=" + strings.TrimSpace(state.StagedBinaryPath) + "\n" +
+		"downloaded_at=" + strings.TrimSpace(state.DownloadedAt)
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
 }
 
 func clearPendingUpdateState() error {
