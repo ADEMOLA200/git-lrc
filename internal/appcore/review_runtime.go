@@ -308,7 +308,9 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	if fakeMode {
 		submitResp = buildFakeSubmitResponse()
 	} else {
-		submitResp, err = reviewapi.SubmitReview(config.APIURL, config.APIKey, base64Diff, repoName, verbose)
+		var updatedConfig Config
+		submitResp, updatedConfig, err = submitReviewWithRecovery(*config, base64Diff, repoName, verbose)
+		config = &updatedConfig
 	}
 	if err != nil {
 		// Handle 413 Request Entity Too Large - prompt user to skip if interactive
@@ -641,7 +643,9 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		if fakeMode {
 			result, pollErr = pollReviewFake(reviewID, opts.PollInterval, fakeWait, verbose, nil, fakeBaseFiles)
 		} else {
-			result, pollErr = reviewapi.PollReview(config.APIURL, config.APIKey, reviewID, opts.PollInterval, opts.Timeout, verbose, nil)
+			var updatedConfig Config
+			result, updatedConfig, pollErr = pollReviewWithRecovery(*config, reviewID, opts.PollInterval, opts.Timeout, verbose, nil)
+			config = &updatedConfig
 		}
 		if pollErr != nil {
 			var apiErr *reviewmodel.APIError
@@ -714,6 +718,8 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		// Poll concurrently and race with decisions
 		var pollResult *reviewmodel.DiffReviewResponse
 		var pollErr error
+		var pollUpdatedConfig Config
+		pollUsedRecovery := false
 		pollDone := make(chan struct{})
 		stopPoll := make(chan struct{})
 		var stopPollOnce sync.Once
@@ -722,7 +728,8 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 			if fakeMode {
 				pollResult, pollErr = pollReviewFake(reviewID, opts.PollInterval, fakeWait, verbose, stopPoll, fakeBaseFiles)
 			} else {
-				pollResult, pollErr = reviewapi.PollReview(config.APIURL, config.APIKey, reviewID, opts.PollInterval, opts.Timeout, verbose, stopPoll)
+				pollUsedRecovery = true
+				pollResult, pollUpdatedConfig, pollErr = pollReviewWithRecovery(*config, reviewID, opts.PollInterval, opts.Timeout, verbose, stopPoll)
 			}
 			close(pollDone)
 		}()
@@ -737,6 +744,9 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		}
 
 		if pollFinished {
+			if pollUsedRecovery {
+				config = &pollUpdatedConfig
+			}
 			if progressiveLoadingActive {
 				currentPhaseMu.Lock()
 				currentPhase = decisionflow.PhaseReviewComplete
@@ -1312,8 +1322,12 @@ func countTotalComments(files []reviewmodel.DiffReviewFileResult) int {
 
 // Config holds the CLI configuration
 type Config struct {
-	APIKey string
-	APIURL string
+	APIKey       string
+	APIURL       string
+	OrgID        string
+	JWT          string
+	RefreshToken string
+	ConfigPath   string
 }
 
 // loadConfigValues attempts to load configuration from ~/.lrc.toml, then applies CLI/env overrides
@@ -1325,6 +1339,7 @@ func loadConfigValues(apiKeyOverride, apiURLOverride string, verbose bool) (*Con
 	var k *koanf.Koanf
 	if err == nil {
 		configPath := filepath.Join(homeDir, ".lrc.toml")
+		config.ConfigPath = configPath
 		if _, err := os.Stat(configPath); err == nil {
 			// Config file exists, try to load it
 			k = koanf.New(".")
@@ -1368,6 +1383,12 @@ func loadConfigValues(apiKeyOverride, apiURLOverride string, verbose bool) (*Con
 		if verbose {
 			log.Printf("Using default API URL: %s", config.APIURL)
 		}
+	}
+
+	if k != nil {
+		config.OrgID = strings.TrimSpace(k.String("org_id"))
+		config.JWT = strings.TrimSpace(k.String("jwt"))
+		config.RefreshToken = strings.TrimSpace(k.String("refresh_token"))
 	}
 
 	return config, nil

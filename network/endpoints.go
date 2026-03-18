@@ -14,6 +14,10 @@ func SetupEnsureCloudUserURL(baseURL string) string {
 	return strings.TrimSuffix(baseURL, "/") + "/api/v1/auth/ensure-cloud-user"
 }
 
+func SetupAuthRefreshURL(baseURL string) string {
+	return strings.TrimSuffix(baseURL, "/") + "/api/v1/auth/refresh"
+}
+
 func SetupCreateAPIKeyURL(baseURL, orgID string) string {
 	return fmt.Sprintf("%s/api/v1/orgs/%s/api-keys", strings.TrimSuffix(baseURL, "/"), orgID)
 }
