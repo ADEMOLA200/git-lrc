@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,34 @@ func ResolveRepoHooksPath(repoRoot string) (string, error) {
 		return localPath, nil
 	}
 	return filepath.Join(repoRoot, localPath), nil
+}
+
+func NormalizeHooksPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", fmt.Errorf("failed to normalize hooks path: empty path")
+	}
+
+	if strings.HasPrefix(trimmed, "~") {
+		home, err := configpath.ResolveHomeDir()
+		if err != nil {
+			return "", err
+		}
+
+		if trimmed == "~" {
+			trimmed = home
+		} else if strings.HasPrefix(trimmed, "~/") || strings.HasPrefix(trimmed, "~\\") {
+			suffix := strings.TrimLeft(trimmed[1:], "/\\")
+			trimmed = filepath.Join(home, suffix)
+		}
+	}
+
+	absPath, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve hooks path %s: %w", trimmed, err)
+	}
+
+	return absPath, nil
 }
 
 func SetGlobalHooksPath(path string) error {

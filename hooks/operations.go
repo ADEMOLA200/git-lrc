@@ -1,7 +1,9 @@
 package hooks
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,7 +19,7 @@ func InstallHook(hookPath, managedSection, hookName, backupDir, markerBegin, mar
 	backupPath := filepath.Join(backupDir, fmt.Sprintf("%s.%s", hookName, timestamp))
 
 	existingContent, err := storage.ReadHookFile(hookPath)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("failed to read existing hook: %w", err)
 	}
 
@@ -73,7 +75,7 @@ func InstallHook(hookPath, managedSection, hookName, backupDir, markerBegin, mar
 func UninstallHook(hookPath, hookName, markerBegin, markerEnd string) error {
 	content, err := storage.ReadHookFile(hookPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("failed to read hook: %w", err)
@@ -149,7 +151,7 @@ func RemoveManagedSection(content, markerBegin, markerEnd string) string {
 func CleanOldBackups(backupDir string, keepLast int) error {
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return err

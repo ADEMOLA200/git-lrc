@@ -1,6 +1,6 @@
 # Storage Operations Status
 
-Last Reviewed: 2026-03-17
+Last Reviewed: 2026-03-19
 Audience: Engineering, Procurement, Security Vetting, CISO
 Scope: Local persistence and file system operations in the storage boundary
 
@@ -10,12 +10,15 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 
 - Storage boundary: local file system and local SQLite only (no outbound API calls in this package).
 - Modes represented: file, db.
-- Operation count tracked: 39 operations.
-- Severity distribution: High 10, Medium 11, Low 18.
+- Operation count tracked: 43 operations.
+- Severity distribution: High 10, Medium 13, Low 20.
 - Primary sensitive data in scope: API keys and connector state in config, review metadata in SQLite, hook scripts and metadata, update lock/state metadata.
 - Highest-risk operation classes: credential file read/write, recursive deletion, permission changes, direct SQL execution wrappers.
 - Primary compensating controls already present: atomic writes for critical files, SQLite WAL mode and busy timeout, explicit chmod utility usage, typed wrapper functions and contextual error wrapping.
 - High-priority updates added in this review: mode-specific permission tests, backward-compatible schema version marker note, optional dry-run/logged branch delete API, optional confirmation-gated full delete API, review-session SQL mutation routing through ExecSQL, and pending-update integrity hash validation with legacy compatibility.
+- Current diff note: hook install reliability fix now handles wrapped file-not-found errors and normalizes hooksPath values before install/uninstall orchestration; no new storage operation APIs added in this increment.
+- Current diff note: uninstall shell source-line cleanup now preserves original LF/CRLF style and replaces string literals with named constants for maintainability.
+- Current diff note: RemoveFileIfExists now avoids stat-then-remove TOCTOU on non-dry-run path, shell-line splitting now respects detected line ending delimiter, and fish managed-marker string is constantized.
 
 ## Severity Rubric
 
@@ -85,6 +88,10 @@ This document tracks storage-side operations in git-lrc as an auditable inventor
 | RemoveEditorBackupStateFile | file | Editor backup state JSON | Cleanup backup state artifact | Low | Low risk from stale local state file | Compensated by explicit cleanup path; acceptable risk | [storage/file_delete_io.go](file_delete_io.go#L91) |
 | RemoveCommitMessageOverrideFile | file | Commit message override file | Cleanup pending override from commit pipeline | Low | Low risk from stale override file affecting UX | Compensated by cleanup routine; acceptable risk | [storage/file_delete_io.go](file_delete_io.go#L99) |
 | RemoveCommitPushRequestFile | file | Push-request marker file | Cleanup post-commit push marker | Low | Low risk of stale marker state | Compensated by simple marker cleanup semantics; acceptable risk | [storage/file_delete_io.go](file_delete_io.go#L107) |
+| RemoveFileIfExists | file | Generic target file path | Remove installer artifacts with dry-run support | Medium | Medium risk of deleting user-local files when wrong target is supplied | Compensated by explicit callsite-owned target lists and existence checks before removal; residual risk acceptable | [storage/uninstall_io.go](uninstall_io.go#L22) |
+| RemoveLRCInstallerShellSourceLines | file | Shell rc file content | Remove installer-owned lrc startup snippets | Medium | Medium risk of modifying user shell startup files | Compensated by marker-based line matching constrained to installer signatures; residual risk acceptable | [storage/uninstall_io.go](uninstall_io.go#L43) |
+| RemoveManagedFishLRCConfig | file | fish conf.d file content/path | Remove installer-managed fish integration file | Low | Low risk because removal is gated on managed-file marker content | Compensated by strict marker check before delete; acceptable risk | [storage/uninstall_io.go](uninstall_io.go#L99) |
+| RemoveDirIfEmptyIfExists | file | Directory path | Remove now-empty installer directory without recursion | Low | Low risk of unintended deletion because operation is empty-dir constrained | Compensated by explicit emptiness check before removal; acceptable risk | [storage/uninstall_io.go](uninstall_io.go#L123) |
 
 ## Inventory: Self-Update State And Lock Files
 

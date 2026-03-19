@@ -111,7 +111,7 @@ func runHooksInstall(c *cli.Context) error {
 		}
 	}
 
-	absHooksPath, err := filepath.Abs(hooksPath)
+	absHooksPath, err := hooksvc.NormalizeHooksPath(hooksPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve hooks path: %w", err)
 	}
@@ -196,7 +196,7 @@ func runHooksUninstall(c *cli.Context) error {
 		}
 	}
 
-	absHooksPath, err := filepath.Abs(hooksPath)
+	absHooksPath, err := hooksvc.NormalizeHooksPath(hooksPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve hooks path: %w", err)
 	}

@@ -428,6 +428,10 @@ func RunReviewWithOptions(opts reviewopts.Options) error {
 	return runReviewWithOptions(opts)
 }
 
+func RunUninstall(c *cli.Context) error {
+	return runUninstall(c)
+}
+
 func RunHooksInstall(c *cli.Context) error {
 	return runHooksInstall(c)
 }

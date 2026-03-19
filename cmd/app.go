@@ -10,6 +10,7 @@ import (
 type Handlers struct {
 	RunReviewSimple       cli.ActionFunc
 	RunReviewDebug        cli.ActionFunc
+	RunUninstall          cli.ActionFunc
 	RunHooksInstall       cli.ActionFunc
 	RunHooksUninstall     cli.ActionFunc
 	RunHooksEnable        cli.ActionFunc
@@ -30,6 +31,50 @@ func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.
 		Version: version,
 		Flags:   baseFlags,
 		Commands: []*cli.Command{
+			{
+				Name:  "uninstall",
+				Usage: "Uninstall lrc from your user environment",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "mode",
+						Value: "standard",
+						Usage: "uninstall mode: minimal, standard, deep",
+					},
+					&cli.BoolFlag{
+						Name:  "yes",
+						Usage: "run non-interactively using defaults and explicit flags",
+					},
+					&cli.BoolFlag{
+						Name:  "dry-run",
+						Usage: "show what would be removed without making changes",
+					},
+					&cli.BoolFlag{
+						Name:  "binaries-only",
+						Usage: "remove only lrc and git-lrc binaries",
+					},
+					&cli.BoolFlag{
+						Name:  "keep-hooks",
+						Usage: "keep hook integration (skip 'lrc hooks uninstall')",
+					},
+					&cli.BoolFlag{
+						Name:  "remove-config",
+						Usage: "remove ~/.lrc.toml",
+					},
+					&cli.BoolFlag{
+						Name:  "keep-config",
+						Usage: "keep ~/.lrc.toml",
+					},
+					&cli.BoolFlag{
+						Name:  "remove-shell-integration",
+						Usage: "remove ~/.lrc/env and installer-added shell startup lines",
+					},
+					&cli.BoolFlag{
+						Name:  "keep-shell-integration",
+						Usage: "keep ~/.lrc/env and shell startup lines",
+					},
+				},
+				Action: h.RunUninstall,
+			},
 			{
 				Name:    "review",
 				Aliases: []string{"r"},
