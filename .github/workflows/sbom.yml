@@ -55,7 +55,12 @@ jobs:
           syft version
 
       - name: Generate SBOM files
-        run: make security-sbom
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            make security-sbom SBOM_VERSION="${{ github.event.release.tag_name }}"
+          else
+            make security-sbom
+          fi
 
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4

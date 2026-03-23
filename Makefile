@@ -13,6 +13,7 @@ GH=/usr/bin/gh
 ENV_VARS=B2_KEY_ID B2_APP_KEY B2_BUCKET_NAME B2_BUCKET_ID
 SYFT_CMD=syft
 SBOM_DIR=security_issues/sbom
+SBOM_VERSION?=$(shell awk -F'"' '/^const appVersion/{print $$2; exit}' main.go)
 RELEASE_NOTES_DIR=docs/releases
 RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
@@ -227,7 +228,8 @@ security-sbom-cyclonedx:
 		exit 1; \
 	}
 	@mkdir -p $(SBOM_DIR)
-	@$(SYFT_CMD) file:go.mod -o cyclonedx-json=$(SBOM_DIR)/git-lrc-go-cyclonedx.json
+	@$(SYFT_CMD) file:go.mod --source-name git-lrc-go --source-version $(SBOM_VERSION) -o cyclonedx-json=$(SBOM_DIR)/git-lrc-go-cyclonedx.json
+	@echo "ℹ️  SBOM version: $(SBOM_VERSION)"
 	@echo "✅ Wrote $(SBOM_DIR)/git-lrc-go-cyclonedx.json"
 
 security-sbom-spdx:
@@ -236,7 +238,8 @@ security-sbom-spdx:
 		exit 1; \
 	}
 	@mkdir -p $(SBOM_DIR)
-	@$(SYFT_CMD) file:go.mod -o spdx-json=$(SBOM_DIR)/git-lrc-go-spdx.json
+	@$(SYFT_CMD) file:go.mod --source-name git-lrc-go --source-version $(SBOM_VERSION) -o spdx-json=$(SBOM_DIR)/git-lrc-go-spdx.json
+	@echo "ℹ️  SBOM version: $(SBOM_VERSION)"
 	@echo "✅ Wrote $(SBOM_DIR)/git-lrc-go-spdx.json"
 
 security-sbom-validate:
