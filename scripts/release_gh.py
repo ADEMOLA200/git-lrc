@@ -57,7 +57,7 @@ def infer_from_main_go() -> Optional[str]:
     main_go = pathlib.Path("main.go")
     if not main_go.exists():
         return None
-    pattern = re.compile(r'^const\\s+appVersion\\s*=\\s*"([^"]+)"')
+    pattern = re.compile(r'^const\s+appVersion\s*=\s*"([^"]+)"')
     for line in main_go.read_text(encoding="utf-8").splitlines():
         match = pattern.match(line.strip())
         if match:

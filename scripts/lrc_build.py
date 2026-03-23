@@ -599,8 +599,23 @@ class LRCBuilder:
             "git", "commit", "-m",
             f"lrc: bump version {current_version} → {new_version}"
         ])
+
+        # Create and push an annotated release tag for the new version.
+        self.log("Creating release tag...", force=True)
+        tag_name = new_version
+        code, _, _ = self.run_command(
+            ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag_name}"],
+            check=False,
+        )
+        if code == 0:
+            print(f"Error: Tag {tag_name} already exists")
+            sys.exit(1)
+
+        self.run_command(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"])
+        self.run_command(["git", "push", "origin", tag_name])
         
         self.log(f"\n✅ Version bumped to {new_version}", force=True)
+        self.log(f"✅ Created and pushed tag {tag_name}", force=True)
         self.log("Run 'make build-all' to build this version", force=True)
 
     def cmd_release(self, args):
