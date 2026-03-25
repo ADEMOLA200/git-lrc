@@ -1,5 +1,11 @@
 // CommentNav component - floating prev/next comment navigator
 import { waitForPreact } from './utils.js';
+import {
+    sanitizeCommentNavState,
+    reconcileCommentNavState,
+    resolveNextIndex,
+    resolvePrevIndex
+} from './comment_nav_state.mjs';
 
 export async function createCommentNav() {
     const { html, useState, useEffect, useCallback, useRef } = await waitForPreact();
@@ -7,59 +13,52 @@ export async function createCommentNav() {
     return function CommentNav({ allComments, commentKey, onNavigate, activeTab }) {
         const [currentIdx, setCurrentIdx] = useState(-1);
         const activeCommentIdRef = useRef(null);
+        const anchorIndexRef = useRef(0);
 
         // Preserve current position when the comment set changes
         useEffect(() => {
             setCurrentIdx((prevIdx) => {
-                if (allComments.length === 0) {
-                    activeCommentIdRef.current = null;
-                    return -1;
-                }
-
-                const activeCommentId = activeCommentIdRef.current;
-                if (activeCommentId) {
-                    const activeIdx = allComments.findIndex((entry) => entry.commentId === activeCommentId);
-                    if (activeIdx >= 0) {
-                        return activeIdx;
-                    }
-                }
-
-                if (prevIdx < 0) {
-                    return -1;
-                }
-
-                const fallbackIdx = Math.min(prevIdx, allComments.length - 1);
-                activeCommentIdRef.current = allComments[fallbackIdx]?.commentId || null;
-                return fallbackIdx;
+                const computedState = reconcileCommentNavState(
+                    allComments,
+                    prevIdx,
+                    activeCommentIdRef.current,
+                    anchorIndexRef.current
+                );
+                const nextState = sanitizeCommentNavState(computedState, allComments.length);
+                activeCommentIdRef.current = nextState.activeCommentId;
+                anchorIndexRef.current = nextState.anchorIdx;
+                return nextState.currentIdx;
             });
         }, [commentKey, allComments]);
 
-        // Clamp index if comments shrink
+        // Guard against stale index when list mutates between events.
         useEffect(() => {
             if (currentIdx >= allComments.length) {
-                const nextIdx = allComments.length > 0 ? allComments.length - 1 : -1;
-                setCurrentIdx(nextIdx);
-                activeCommentIdRef.current = nextIdx >= 0 ? allComments[nextIdx]?.commentId || null : null;
+                setCurrentIdx(-1);
+                activeCommentIdRef.current = null;
+                anchorIndexRef.current = allComments.length;
             }
         }, [allComments.length, currentIdx]);
 
         const goTo = useCallback((idx) => {
             if (allComments.length === 0) return;
+            if (idx < 0 || idx >= allComments.length) return;
             setCurrentIdx(idx);
             const c = allComments[idx];
+            anchorIndexRef.current = idx;
             activeCommentIdRef.current = c?.commentId || null;
             onNavigate(c.commentId, c.fileId);
         }, [allComments, onNavigate]);
 
         const goNext = useCallback(() => {
             if (allComments.length === 0) return;
-            const next = currentIdx < allComments.length - 1 ? currentIdx + 1 : 0;
+            const next = resolveNextIndex(currentIdx, anchorIndexRef.current, allComments.length);
             goTo(next);
         }, [allComments.length, currentIdx, goTo]);
 
         const goPrev = useCallback(() => {
             if (allComments.length === 0) return;
-            const prev = currentIdx > 0 ? currentIdx - 1 : allComments.length - 1;
+            const prev = resolvePrevIndex(currentIdx, anchorIndexRef.current, allComments.length);
             goTo(prev);
         }, [allComments.length, currentIdx, goTo]);
 
