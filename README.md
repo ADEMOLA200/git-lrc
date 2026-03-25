@@ -224,6 +224,13 @@ By default, the **first connector in the list** is used for reviews.
 
 ![LRC UI connector management preview](./gfx/git-lrc-ui.png)
 
+## Security You Can Trust
+
+- Security is treated as a core product requirement in git-lrc.
+- We document reporting channels, response commitments, and operational safeguards clearly.
+- Automated security checks and SBOM workflows support transparent verification.
+- For complete details, see [SECURITY.md](SECURITY.md).
+
 ## FAQ
 
 ### Review vs Vouch vs Skip?
