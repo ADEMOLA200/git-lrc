@@ -21,6 +21,7 @@ type Handlers struct {
 	RunAttestationTrailer cli.ActionFunc
 	RunSetup              cli.ActionFunc
 	RunUI                 cli.ActionFunc
+	RunUsageInspect       cli.ActionFunc
 }
 
 // BuildApp constructs the full CLI app with all command wiring.
@@ -176,6 +177,22 @@ func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.
 					},
 				},
 				Action: h.RunSelfUpdate,
+			},
+			{
+				Name:  "usage",
+				Usage: "Inspect plan and quota usage",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "inspect",
+						Usage: "Fetch and display current quota envelope for selected org",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "api-url", Usage: "override LiveReview API base URL"},
+							&cli.StringFlag{Name: "output", Value: "pretty", Usage: "output format: pretty or json"},
+							&cli.BoolFlag{Name: "verbose", Usage: "enable verbose output"},
+						},
+						Action: h.RunUsageInspect,
+					},
+				},
 			},
 			{
 				Name:   "review-cleanup",
