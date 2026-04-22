@@ -1,7 +1,8 @@
 .PHONY: build build-win build-all build-local build-local-test run run-fake-review bump release release-gh clean test testall test-pkg upload-secrets download-secrets security-govulncheck security-govulncheck-json security-osv security-triage security-gitleaks security-b2-audit security-b2-cleanup-plan security-b2-cleanup-apply security-publish-release-manifest security-secret-regression security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight
 
 # Go parameters
-GOCMD=go
+GOENV=env -u GOROOT
+GOCMD=$(GOENV) go
 GOBUILD=$(GOCMD) build
 GOTEST=$(GOCMD) test
 BINARY_NAME=lrc
@@ -42,7 +43,7 @@ build-all:
 # Build lrc locally for the current platform and install
 build-local:
 	@echo "🔨 Building lrc CLI locally (dirty tree allowed)..."
-	@go build -o /tmp/lrc .
+	@$(GOBUILD) -o /tmp/lrc .
 	@mkdir -p $(HOME)/.local/bin
 	@install -m 0755 /tmp/lrc $(HOME)/.local/bin/lrc
 	@cp $(HOME)/.local/bin/lrc $(HOME)/.local/bin/git-lrc
@@ -52,7 +53,7 @@ build-local:
 # Build lrc locally in fake-review mode for E2E testing (no AI calls)
 build-local-test:
 	@echo "🔨 Building lrc CLI locally in FAKE REVIEW mode..."
-	@go build -ldflags "-X main.reviewMode=fake" -o /tmp/lrc .
+	@$(GOBUILD) -ldflags "-X main.reviewMode=fake" -o /tmp/lrc .
 	@mkdir -p $(HOME)/.local/bin
 	@install -m 0755 /tmp/lrc $(HOME)/.local/bin/lrc
 	@cp $(HOME)/.local/bin/lrc $(HOME)/.local/bin/git-lrc
