@@ -197,6 +197,7 @@ async function initApp() {
         const [isTailing, setIsTailing] = useState(false);
         const [hiddenCommentKeys, setHiddenCommentKeys] = useState(new Set());
         const [copyFeedback, setCopyFeedback] = useState({ status: 'idle', message: '' });
+        const [handoffModal, setHandoffModal] = useState({ isOpen: false, type: '', message: '' });
         
         const pollingRef = useRef(null);
         const eventsPollingRef = useRef(null);
@@ -442,6 +443,56 @@ async function initApp() {
             });
         }, []);
 
+        const handleSendToAgent = useCallback(async () => {
+            const filteredFiles = (reviewData.files || reviewData.Files || []).map(file => {
+                const filePath = file.file_path || file.filePath || file.FilePath;
+                const newComments = (file.comments || file.Comments || []).filter(c => {
+                    const sev = (c.severity || c.Severity || '').toLowerCase();
+                    if (!visibleSeverities.has(sev)) return false;
+                    const key = getCommentVisibilityKey(filePath, c);
+                    return !hiddenCommentKeys.has(key);
+                });
+                return { ...file, comments: newComments, Comments: newComments };
+            }).filter(file => file.comments.length > 0);
+            
+            if (filteredFiles.length === 0) {
+                setHandoffModal({ 
+                    isOpen: true, 
+                    type: 'error', 
+                    message: "No visible comments to send to the AI agent. Please show some comments first." 
+                });
+                return;
+            }
+            
+            const payload = {
+                ...reviewData,
+                files: filteredFiles,
+                Files: filteredFiles,
+                summary: "AI Agent Handoff generated for visible issues.",
+                status: "completed"
+            };
+            
+            try {
+                const response = await fetch('/handoff', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error("Handoff failed");
+                setHandoffModal({ 
+                    isOpen: true, 
+                    type: 'success', 
+                    message: "Claude Code is now starting in your terminal! You can safely close this browser window." 
+                });
+            } catch (e) {
+                setHandoffModal({ 
+                    isOpen: true, 
+                    type: 'error', 
+                    message: "Failed to send to agent: " + e.message 
+                });
+            }
+        }, [reviewData, visibleSeverities, hiddenCommentKeys]);
+
         const showCopyFeedback = useCallback((status, message) => {
             setCopyFeedback({ status, message });
             if (copyFeedbackTimerRef.current) {
@@ -614,6 +665,25 @@ async function initApp() {
         // Calculate totalComments from actual files - single source of truth
         const totalComments = files.reduce((sum, file) => sum + (file.CommentCount || 0), 0);
         
+        // Calculate visible comments for the agent button
+        let totalVisibleComments = 0;
+        files.forEach(file => {
+            if (!file.HasComments) return;
+            file.Hunks.forEach(hunk => {
+                hunk.Lines.forEach(line => {
+                    if (line.IsComment && line.Comments) {
+                        line.Comments.forEach((comment) => {
+                            const sev = (comment.Severity || '').toLowerCase();
+                            if (!visibleSeverities.has(sev)) return;
+                            const visibilityKey = getCommentVisibilityKey(file.FilePath, comment);
+                            if (visibilityKey && hiddenCommentKeys.has(visibilityKey)) return;
+                            totalVisibleComments++;
+                        });
+                    }
+                });
+            });
+        });
+        
         // Status display
         const getStatusDisplay = () => {
             if (reviewData?.blocked) {
@@ -708,6 +778,8 @@ async function initApp() {
                             hiddenCommentKeys=${hiddenCommentKeys}
                             copyFeedbackStatus=${copyFeedback.status}
                             copyFeedbackMessage=${copyFeedback.message}
+                            onSendToAgent=${handleSendToAgent}
+                            visibleCount=${totalVisibleComments}
                         />
                     `}
                     
@@ -734,6 +806,38 @@ async function initApp() {
                             `
                         }
                     </div>
+                    
+                    ${handoffModal.isOpen && html`
+                        <div class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+                            <div class="modal-content" style="background: var(--bg-card); padding: 32px; border-radius: 12px; max-width: 400px; width: 90%; border: 1px solid var(--border-color); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); text-align: center;">
+                                ${handoffModal.type === 'success' 
+                                    ? html`
+                                        <div style="margin-bottom: 16px; color: #8b5cf6;">
+                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect x="2" y="3" width="20" height="18" rx="2" ry="2"></rect>
+                                                <polyline points="6 8 10 12 6 16"></polyline>
+                                                <line x1="14" y1="16" x2="18" y2="16"></line>
+                                            </svg>
+                                        </div>
+                                    `
+                                    : html`<div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>`
+                                }
+                                <h3 style="margin: 0 0 12px 0; font-size: 20px; color: var(--text-primary);">
+                                    ${handoffModal.type === 'success' ? 'Check Your Terminal' : 'Notice'}
+                                </h3>
+                                <p style="margin: 0 0 24px 0; color: var(--text-secondary); line-height: 1.5;">
+                                    ${handoffModal.message}
+                                </p>
+                                <button 
+                                    class="btn btn-primary" 
+                                    onClick=${() => setHandoffModal({ ...handoffModal, isOpen: false })}
+                                    style="width: 100%; padding: 12px; font-size: 16px;"
+                                >
+                                    ${handoffModal.type === 'success' ? 'Got it' : 'Close'}
+                                </button>
+                            </div>
+                        </div>
+                    `}
                     
                     <!-- Events Tab -->
                     <div id="events-tab" class="tab-content ${activeTab === 'events' ? 'active' : ''}" style="display: ${activeTab === 'events' ? 'block' : 'none'}">
