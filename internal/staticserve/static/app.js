@@ -323,37 +323,19 @@ async function initApp() {
 
         const fetchFinalReviewData = useCallback(async (reviewID) => {
             if (!reviewID) return null;
-
             const rParam = sessionReviewID ? `?r=${sessionReviewID}` : '';
-            const fetchTargets = [
-                `/api/v1/diff-review/${reviewID}${rParam}`,
-                `/api/review${rParam}`
-            ];
-
-            for (const url of fetchTargets) {
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        continue;
-                    }
-                    const data = await response.json();
-                    commitReviewData(prev => {
-                        if (!prev) {
-                            return data;
-                        }
-                        return {
-                            ...prev,
-                            ...data,
-                            files: data.files || prev.files || []
-                        };
-                    });
-                    return data;
-                } catch (err) {
-                    console.error(`Error fetching final review data from ${url}:`, err);
-                }
+            try {
+                const response = await fetch(`/api/v1/diff-review/${reviewID}${rParam}`);
+                if (!response.ok) return null;
+                const data = await response.json();
+                commitReviewData(prev =>
+                    prev ? { ...prev, ...data, files: data.files || prev.files || [] } : data
+                );
+                return data;
+            } catch (err) {
+                console.error('Error fetching final review data:', err);
+                return null;
             }
-
-            return null;
         }, [commitReviewData, sessionReviewID]);
         
         // Fetch events for live logs and comments
