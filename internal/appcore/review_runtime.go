@@ -726,10 +726,10 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 			}))
 			// Proxy feedback endpoints — adds API key so browser never holds the key
 			mux.HandleFunc("/api/v1/feedback", requireSession(reviewID, func(w http.ResponseWriter, r *http.Request) {
-				handleFeedbackProxy(w, r, *config, verbose)
+				handleFeedbackProxy(w, r, *config, verbose, reviewID)
 			}))
 			mux.HandleFunc("/api/v1/feedback/", requireSession(reviewID, func(w http.ResponseWriter, r *http.Request) {
-				handleFeedbackProxy(w, r, *config, verbose)
+				handleFeedbackProxy(w, r, *config, verbose, reviewID)
 			}))
 			server := &http.Server{Handler: mux}
 			if err := server.Serve(serveListener); err != nil && err != http.ErrServerClosed {
@@ -2541,7 +2541,7 @@ func handleReviewEventsProxy(w http.ResponseWriter, r *http.Request, config Conf
 	}
 }
 
-func handleFeedbackProxy(w http.ResponseWriter, r *http.Request, config Config, verbose bool) {
+func handleFeedbackProxy(w http.ResponseWriter, r *http.Request, config Config, verbose bool, reviewID string) {
 	var reqBody []byte
 	if r.Body != nil {
 		const maxProxyBodyBytes = 8 << 20
@@ -2555,6 +2555,21 @@ func handleFeedbackProxy(w http.ResponseWriter, r *http.Request, config Config, 
 			return
 		}
 		reqBody = readBody
+	}
+
+	// Inject review_id from the server-side session so the DB row is always linked
+	if reviewID != "" {
+		if rid, err := strconv.ParseInt(reviewID, 10, 64); err == nil {
+			var payload map[string]interface{}
+			if json.Unmarshal(reqBody, &payload) == nil {
+				if _, already := payload["review_id"]; !already {
+					payload["review_id"] = rid
+					if merged, mergeErr := json.Marshal(payload); mergeErr == nil {
+						reqBody = merged
+					}
+				}
+			}
+		}
 	}
 
 	headers := map[string]string{"X-API-Key": config.APIKey}
@@ -2639,10 +2654,10 @@ func serveHTMLInteractive(htmlPath string, port int, ln net.Listener, initialMsg
 	})
 	// Proxy feedback endpoints — adds API key so browser never holds the key
 	mux.HandleFunc("/api/v1/feedback", requireSession(sessionID, func(w http.ResponseWriter, r *http.Request) {
-		handleFeedbackProxy(w, r, cfg, false)
+		handleFeedbackProxy(w, r, cfg, false, sessionID)
 	}))
 	mux.HandleFunc("/api/v1/feedback/", requireSession(sessionID, func(w http.ResponseWriter, r *http.Request) {
-		handleFeedbackProxy(w, r, cfg, false)
+		handleFeedbackProxy(w, r, cfg, false, sessionID)
 	}))
 
 	type precommitDecision struct {
