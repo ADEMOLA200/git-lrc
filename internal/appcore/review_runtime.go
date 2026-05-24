@@ -492,6 +492,9 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 			fmt.Printf("   Comments will appear progressively as review runs\n\n")
 		}
 
+		unregister := registerActiveReview(opts.Port, reviewID, submitResp.FriendlyName, repoName, time.Now())
+		defer unregister()
+
 		// Auto-open the review in the default browser
 		openURL(serveURL)
 
@@ -571,6 +574,10 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/" {
 					http.NotFound(w, r)
+					return
+				}
+				if r.URL.Query().Get("r") == "" {
+					serveReviewListing(w, *config)
 					return
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1269,7 +1276,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 				})
 			} else {
 				// No progressive loading - use normal serveHTMLInteractive
-				code, msg, push, err := serveHTMLInteractive(htmlPath, opts.Port, nonProgressiveListener, initialMsg, reviewMetadata, false, *config, reviewID)
+				code, msg, push, err := serveHTMLInteractive(htmlPath, opts.Port, nonProgressiveListener, initialMsg, reviewMetadata, false, *config, reviewID, submitResp.FriendlyName, repoName)
 				if err != nil {
 					return err
 				}
@@ -2601,6 +2608,7 @@ func handleFeedbackProxy(w http.ResponseWriter, r *http.Request, config Config, 
 	}
 }
 
+
 func buildDecisionMetadata(reviewID, account, title, reviewURL string) []string {
 	metadata := make([]string, 0, 4)
 	if strings.TrimSpace(reviewID) != "" {
@@ -2621,7 +2629,7 @@ func buildDecisionMetadata(reviewID, account, title, reviewURL string) []string 
 // serveHTMLInteractive serves HTML and waits for user decision
 // Returns decision details (code: 0 commit, 1 abort, 2 skip-from-terminal, 3 skip-from-HTML)
 // skipBrowserOpen: set to true if browser is already open (e.g., from progressive loading)
-func serveHTMLInteractive(htmlPath string, port int, ln net.Listener, initialMsg string, metadata []string, skipBrowserOpen bool, cfg Config, sessionID string) (int, string, bool, error) {
+func serveHTMLInteractive(htmlPath string, port int, ln net.Listener, initialMsg string, metadata []string, skipBrowserOpen bool, cfg Config, sessionID, friendlyName, repository string) (int, string, bool, error) {
 	absPath, err := filepath.Abs(htmlPath)
 	if err != nil {
 		return 1, "", false, fmt.Errorf("failed to get absolute path: %w", err)
@@ -2637,6 +2645,9 @@ func serveHTMLInteractive(htmlPath string, port int, ln net.Listener, initialMsg
 	fmt.Printf("🌐 Review available at: %s\n", highlightURL(url))
 	fmt.Printf("\n")
 
+	unregister := registerActiveReview(port, sessionID, friendlyName, repository, time.Now())
+	defer unregister()
+
 	// Open browser only if not already open
 	if !skipBrowserOpen {
 		go func() {
@@ -2650,6 +2661,10 @@ func serveHTMLInteractive(htmlPath string, port int, ln net.Listener, initialMsg
 	// Serve static assets (JS, CSS) from embedded filesystem
 	mux.Handle("/static/", http.StripPrefix("/static/", staticserve.GetStaticHandler()))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" && r.URL.Query().Get("r") == "" {
+			serveReviewListing(w, cfg)
+			return
+		}
 		http.ServeFile(w, r, absPath)
 	})
 	// Proxy feedback endpoints — adds API key so browser never holds the key
