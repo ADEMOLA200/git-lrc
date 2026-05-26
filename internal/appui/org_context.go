@@ -235,7 +235,7 @@ func (s *connectorManagerServer) createAPIKeyWithJWT(apiURL, orgID, jwtToken str
 		return "", fmt.Errorf("missing jwt token")
 	}
 
-	payload := createAPIKeyRuntimeRequest{Label: "LRC UI Manager Key"}
+	payload := createAPIKeyRuntimeRequest{Label: "LRC CLI Key"}
 	resp, err := network.SetupCreateAPIKey(s.client, apiURL, orgID, payload, jwtToken)
 	if err != nil {
 		return "", err
