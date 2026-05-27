@@ -2,6 +2,13 @@
 
 Date: __DATE__
 
+<!--
+Release images for this version belong in: __IMAGE_DIR__
+Reference files from this release folder with the placeholder syntax documented in __IMAGE_DIR__/README.md.
+Published raw URL base: __IMAGE_RAW_URL_BASE__
+Published raw URL example: __IMAGE_RAW_URL_EXAMPLE__
+-->
+
 ## Summary
 - Add a concise summary of this release.
 

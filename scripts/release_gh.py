@@ -2,19 +2,26 @@
 """Publish a GitHub release from markdown notes with auto-version inference.
 
 Usage:
-  python3 scripts/release_gh.py --repo HexmosTech/git-lrc [--version vX.Y.Z]
+    python3 scripts/release_gh.py --repo HexmosTech/git-lrc [--version vX.Y.Z]
+    python3 scripts/release_gh.py --repo HexmosTech/git-lrc --version vX.Y.Z --check-only
+    python3 scripts/release_gh.py --print-version [--version vX.Y.Z]
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 from typing import Iterable, Optional, Tuple
 
 SEMVER_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+IMAGE_REF_RE = re.compile(r"IMG:([^\s)]+)")
+RELEASE_NOTES_DIR = pathlib.Path("docs") / "releases"
+RELEASE_IMAGE_DIR = RELEASE_NOTES_DIR / "img"
 
 
 def run(cmd: Iterable[str], check: bool = True) -> str:
@@ -86,6 +93,74 @@ def infer_version(explicit: Optional[str]) -> str:
     )
 
 
+def release_notes_path(version: str) -> pathlib.Path:
+    return RELEASE_NOTES_DIR / f"{version}.md"
+
+
+def release_image_dir(version: str) -> pathlib.Path:
+    return RELEASE_IMAGE_DIR / version
+
+
+def normalize_image_ref(image_ref: str) -> pathlib.PurePosixPath:
+    candidate = pathlib.PurePosixPath(image_ref)
+    if not image_ref or candidate.is_absolute():
+        raise ValueError(f"invalid image reference 'IMG:{image_ref}'")
+    if any(part in {"", ".", ".."} for part in candidate.parts):
+        raise ValueError(f"invalid image reference 'IMG:{image_ref}'")
+    return candidate
+
+
+def raw_image_url(repo: str, version: str, image_ref: pathlib.PurePosixPath) -> str:
+    return (
+        f"https://raw.githubusercontent.com/{repo}/refs/tags/{version}/"
+        f"docs/releases/img/{version}/{image_ref.as_posix()}"
+    )
+
+
+def render_release_notes(repo: str, version: str, notes_text: str) -> str:
+    image_dir = release_image_dir(version)
+    if not image_dir.is_dir():
+        raise ValueError(
+            f"missing release image directory: {image_dir}\n"
+            f"   Fix: make release-notes-init VERSION={version}"
+        )
+
+    def replace(match: re.Match[str]) -> str:
+        image_ref = normalize_image_ref(match.group(1))
+        local_path = image_dir.joinpath(*image_ref.parts)
+        if not local_path.exists():
+            raise ValueError(
+                f"missing release image asset: {local_path}\n"
+                f"   Fix: add the file under {image_dir} or update the markdown reference"
+            )
+        if not local_path.is_file():
+            raise ValueError(f"release image reference must point to a file: {local_path}")
+        return raw_image_url(repo, version, image_ref)
+
+    rendered = IMAGE_REF_RE.sub(replace, notes_text)
+    if "IMG:" in rendered:
+        raise ValueError(
+            "unresolved IMG: placeholder remains in release notes\n"
+            "   Fix: use markdown like ![alt](IMG:path/to/file.png) with files under the release image directory"
+        )
+    return rendered
+
+
+def prepare_release_notes(repo: str, version: str) -> Tuple[pathlib.Path, str]:
+    notes_file = release_notes_path(version)
+    if not notes_file.exists() or notes_file.stat().st_size == 0:
+        raise ValueError(
+            f"missing release notes file: {notes_file}\n"
+            f"   Fix: make release-notes-init VERSION={version}"
+        )
+
+    notes_text = notes_file.read_text(encoding="utf-8")
+    rendered_notes = render_release_notes(repo, version, notes_text)
+    if not rendered_notes.strip():
+        raise ValueError(f"release notes render to empty content: {notes_file}")
+    return notes_file, rendered_notes
+
+
 def ensure_local_tag(version: str) -> None:
     exists = subprocess.run(
         ["git", "rev-parse", "-q", "--verify", f"refs/tags/{version}"],
@@ -102,6 +177,24 @@ def ensure_remote_tag(version: str) -> None:
     result = subprocess.run(["git", "push", "origin", version], check=False)
     if result.returncode != 0:
         raise RuntimeError(f"failed to push tag {version} to origin")
+
+
+def ensure_gh_cli() -> None:
+    result = subprocess.run(["gh", "--version"], check=False, text=True, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError("gh CLI is not available in PATH")
+
+
+def ensure_gh_repo_access(repo: str) -> None:
+    result = subprocess.run(
+        ["gh", "repo", "view", repo, "--json", "name"],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout).strip() or f"unable to access {repo}"
+        raise RuntimeError(f"gh cannot access {repo}: {message}")
 
 
 def release_exists(repo: str, version: str) -> bool:
@@ -149,10 +242,19 @@ def publish_release(repo: str, version: str, notes_file: pathlib.Path) -> None:
     )
 
 
+def write_rendered_notes(version: str, rendered_notes: str) -> pathlib.Path:
+    fd, path = tempfile.mkstemp(prefix=f"{version}-release-", suffix=".md")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(rendered_notes)
+    return pathlib.Path(path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish GitHub release from markdown notes")
-    parser.add_argument("--repo", required=True, help="GitHub repo in owner/name form")
+    parser.add_argument("--repo", help="GitHub repo in owner/name form")
     parser.add_argument("--version", help="Version to publish, e.g. v1.2.3")
+    parser.add_argument("--check-only", action="store_true", help="Validate release notes and image references without publishing")
+    parser.add_argument("--print-version", action="store_true", help="Infer and print the resolved release version")
     args = parser.parse_args()
 
     try:
@@ -161,19 +263,39 @@ def main() -> int:
         print(f"❌ {exc}")
         return 2
 
-    notes_file = pathlib.Path("docs") / "releases" / f"{version}.md"
-    if not notes_file.exists() or notes_file.stat().st_size == 0:
-        print(f"❌ Missing release notes file: {notes_file}")
-        print(f"   Fix: make release-notes-init VERSION={version}")
+    if args.print_version:
+        print(version)
+        return 0
+
+    if not args.repo:
+        print("❌ --repo is required unless --print-version is used")
         return 2
 
     try:
+        notes_file, rendered_notes = prepare_release_notes(args.repo, version)
+    except ValueError as exc:
+        print(f"❌ {exc}")
+        return 2
+
+    if args.check_only:
+        print(f"✅ Release notes validated: {notes_file}")
+        print(f"✅ Release image directory validated: {release_image_dir(version)}")
+        return 0
+
+    rendered_notes_file: Optional[pathlib.Path] = None
+    try:
+        ensure_gh_cli()
+        ensure_gh_repo_access(args.repo)
         ensure_local_tag(version)
         ensure_remote_tag(version)
-        publish_release(args.repo, version, notes_file)
+        rendered_notes_file = write_rendered_notes(version, rendered_notes)
+        publish_release(args.repo, version, rendered_notes_file)
     except Exception as exc:  # noqa: BLE001
         print(f"❌ Failed to publish GitHub release: {exc}")
         return 1
+    finally:
+        if rendered_notes_file and rendered_notes_file.exists():
+            rendered_notes_file.unlink()
 
     print(f"✅ Published GitHub release: {version}")
     print("ℹ️  SBOM generation+attachment will run from the release tag in CI.")

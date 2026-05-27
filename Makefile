@@ -18,6 +18,8 @@ SBOM_VERSION?=$(shell awk -F'"' '/^const appVersion/{print $$2; exit}' main.go)
 SBOM_CDX=$(SBOM_DIR)/git-lrc-$(SBOM_VERSION)-cyclonedx.json
 SBOM_SPDX=$(SBOM_DIR)/git-lrc-$(SBOM_VERSION)-spdx.json
 RELEASE_NOTES_DIR=docs/releases
+RELEASE_IMAGE_DIR=$(RELEASE_NOTES_DIR)/img
+RELEASE_IMAGE_GUIDE=README.md
 RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
 
@@ -96,8 +98,32 @@ bump:
 release: check-status-doc
 	@echo "🚀 Building and releasing lrc..."
 	@python scripts/lrc_build.py -v release
-	@echo "ℹ️  Optional GitHub release publish: make release-gh"
-	@echo "   Optional explicit override: make release-gh VERSION=$$(awk -F'"' '/const appVersion/{print $$2; exit}' main.go)"
+	@version="$$(python3 $(RELEASE_GH_SCRIPT) --print-version)" || exit $$?; \
+	notes="$(RELEASE_NOTES_DIR)/$$version.md"; \
+	img_dir="$(RELEASE_IMAGE_DIR)/$$version"; \
+	if [ -f "$$notes" ] || [ -d "$$img_dir" ]; then \
+		echo "ℹ️  Release scaffold already exists:"; \
+		echo "   Notes: $$notes"; \
+		echo "   Images: $$img_dir"; \
+		echo "   Next: edit the markdown, add media, then run make release-gh VERSION=$$version"; \
+		exit 0; \
+	fi; \
+	printf "Create release markdown and image folder for %s? [y/N]: " "$$version"; \
+	read ans; \
+	if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
+		$(MAKE) release-notes-init VERSION="$$version"; \
+		echo "ℹ️  Edit $$notes"; \
+		echo "ℹ️  Drop release images or GIFs into $$img_dir"; \
+		echo "ℹ️  Reference them in the markdown with ![alt](IMG:path/to/file.png)"; \
+		echo "ℹ️  That publishes as https://raw.githubusercontent.com/$(GH_REPO)/refs/tags/$$version/$(RELEASE_IMAGE_DIR)/$$version/path/to/file.png"; \
+		echo "ℹ️  Publish when ready: make release-gh VERSION=$$version"; \
+	else \
+		echo "ℹ️  Skipped release scaffold."; \
+		echo "   Create it later with: make release-notes-init VERSION=$$version"; \
+		echo "   Markdown path: $$notes"; \
+		echo "   Image directory: $$img_dir"; \
+		echo "   Publish when ready: make release-gh VERSION=$$version"; \
+	fi
 
 # Build and upload an internal release of lrc using the same storage layout.
 release-internal: check-status-doc
@@ -108,7 +134,9 @@ release-internal: check-status-doc
 # Optionally publish a GitHub release using markdown notes (no binary assets).
 # VERSION is optional and auto-inferred by scripts/release_gh.py.
 release-gh:
-	@python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) $(if $(VERSION),--version $(VERSION),)
+	@version="$$(python3 $(RELEASE_GH_SCRIPT) --print-version $(if $(VERSION),--version $(VERSION),))" || exit $$?; \
+	$(MAKE) release-preflight VERSION="$$version"; \
+	python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) --version "$$version"
 
 # Clean build artifacts
 clean:
@@ -272,7 +300,7 @@ security-sbom-validate:
 	@test -s $(SBOM_SPDX)
 	@echo "✅ SBOM validation passed"
 
-# Generate release notes file from template.
+# Generate release notes file and per-release image folder from template.
 # Usage: make release-notes-init VERSION=v1.2.3
 release-notes-init:
 	@if [ -z "$(VERSION)" ]; then \
@@ -287,14 +315,39 @@ release-notes-init:
 		echo "❌ Missing template: $(RELEASE_NOTES_TEMPLATE)"; \
 		exit 1; \
 	}
-	@mkdir -p $(RELEASE_NOTES_DIR)
+	@mkdir -p $(RELEASE_NOTES_DIR) $(RELEASE_IMAGE_DIR)
 	@target="$(RELEASE_NOTES_DIR)/$(VERSION).md"; \
+	img_dir="$(RELEASE_IMAGE_DIR)/$(VERSION)"; \
+	guide="$$img_dir/$(RELEASE_IMAGE_GUIDE)"; \
 	if [ -f "$$target" ]; then \
 		echo "❌ Release notes already exist: $$target"; \
 		exit 1; \
 	fi; \
-	sed -e "s/__VERSION__/$(VERSION)/g" -e "s/__DATE__/$(shell date -u +%Y-%m-%d)/g" "$(RELEASE_NOTES_TEMPLATE)" > "$$target"; \
-	echo "✅ Created $$target"
+	if [ -e "$$img_dir" ]; then \
+		echo "❌ Release image directory already exists: $$img_dir"; \
+		exit 1; \
+	fi; \
+	mkdir -p "$$img_dir"; \
+	printf '%s\n' \
+		'# Release media for $(VERSION)' \
+		'' \
+		'Drop screenshots and GIFs for this release into this directory.' \
+		'' \
+		'Use markdown references like: ![demo](IMG:demo.png)' \
+		'' \
+		'Raw URL base after publish:' \
+		'https://raw.githubusercontent.com/$(GH_REPO)/refs/tags/$(VERSION)/$(RELEASE_IMAGE_DIR)/$(VERSION)/' \
+		> "$$guide"; \
+	sed \
+		-e "s|__VERSION__|$(VERSION)|g" \
+		-e "s|__DATE__|$(shell date -u +%Y-%m-%d)|g" \
+		-e "s|__IMAGE_DIR__|$(RELEASE_IMAGE_DIR)/$(VERSION)|g" \
+		-e "s|__IMAGE_RAW_URL_BASE__|https://raw.githubusercontent.com/$(GH_REPO)/refs/tags/$(VERSION)/$(RELEASE_IMAGE_DIR)/$(VERSION)/|g" \
+		-e "s|__IMAGE_RAW_URL_EXAMPLE__|https://raw.githubusercontent.com/$(GH_REPO)/refs/tags/$(VERSION)/$(RELEASE_IMAGE_DIR)/$(VERSION)/demo.png|g" \
+		"$(RELEASE_NOTES_TEMPLATE)" > "$$target"; \
+	echo "✅ Created $$target"; \
+	echo "✅ Created $$img_dir"; \
+	echo "✅ Created $$guide"
 
 # Validate release notes file exists and required headings are present.
 # Usage: make release-notes-check VERSION=v1.2.3
@@ -313,6 +366,7 @@ release-notes-check:
 	grep -q '^## Summary' "$$target" || { echo "❌ Missing required section: ## Summary"; exit 1; }; \
 	grep -q '^## Install and Update' "$$target" || { echo "❌ Missing required section: ## Install and Update"; exit 1; }; \
 	grep -q '^## Changes' "$$target" || { echo "❌ Missing required section: ## Changes"; exit 1; }; \
+	python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) --version $(VERSION) --check-only || exit $$?; \
 	echo "✅ Release notes validated: $$target"
 
 # Run all release checks before creating/publishing a GitHub release.
