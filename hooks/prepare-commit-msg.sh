@@ -4,8 +4,11 @@ __LRC_MARKER_BEGIN__
 # Manual changes within markers will be lost on hook updates
 
 COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="${2:-}"
 SKIP_REVIEW="${LRC_SKIP_REVIEW:-}" 
 GIT_DIR="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+COMMIT_MSG_OVERRIDE="$GIT_DIR/__LRC_COMMIT_MESSAGE_FILE__"
+EDITOR_OVERRIDE_STATE="$GIT_DIR/livereview_editor_override"
 LRC_DIR="$GIT_DIR/lrc"
 ATTEST_DIR="$LRC_DIR/attestations"
 DISABLED_FILE="$LRC_DIR/disabled"
@@ -13,6 +16,31 @@ DISABLED_GIT_FILE="$LRC_DIR/disabled-git"
 STATE_FILE="$GIT_DIR/livereview_state"
 LOCK_DIR="$GIT_DIR/livereview_state.lock"
 INITIAL_MSG_FILE="$GIT_DIR/livereview_initial_message.$$"
+
+apply_commit_message_override() {
+	if [ -n "$COMMIT_MSG_FILE" ] && [ -f "$COMMIT_MSG_OVERRIDE" ] && [ -s "$COMMIT_MSG_OVERRIDE" ]; then
+		cat "$COMMIT_MSG_OVERRIDE" > "$COMMIT_MSG_FILE" 2>/dev/null || true
+	fi
+}
+
+enable_noop_editor_for_prefilled_commit_message() {
+	if [ -n "$COMMIT_SOURCE" ]; then
+		return
+	fi
+	if [ -z "$COMMIT_MSG_FILE" ] || [ ! -f "$COMMIT_MSG_OVERRIDE" ] || [ ! -s "$COMMIT_MSG_OVERRIDE" ]; then
+		return
+	fi
+	if [ ! -f "$EDITOR_OVERRIDE_STATE" ]; then
+		PREVIOUS_EDITOR="$(git config --local --get core.editor 2>/dev/null || echo __LRC_UNSET__)"
+		printf '%s\n' "$PREVIOUS_EDITOR" > "$EDITOR_OVERRIDE_STATE"
+	fi
+	git config --local core.editor true >/dev/null 2>&1 || true
+}
+
+prepare_prefilled_commit_message() {
+	apply_commit_message_override
+	enable_noop_editor_for_prefilled_commit_message
+}
 
 if [ -f "$DISABLED_FILE" ] || [ -f "$DISABLED_GIT_FILE" ]; then
 	exit 0
@@ -31,6 +59,7 @@ fi
 
 # Claude Code local hook already ran the blocking review gate; avoid re-running it here.
 if [ "${LRC_CLAUDE_REVIEW_HANDLED:-}" = "1" ]; then
+	prepare_prefilled_commit_message
 	echo "LiveReview: Claude-managed review already handled; prepare-commit-msg no-op" >&2
 	exit 0
 fi
@@ -54,6 +83,7 @@ if [ "$LRC_INTERACTIVE" = "0" ]; then
 		echo "LiveReview: review attestation missing for staged changes. Run 'lrc review --staged' (or --skip/--vouch) and retry commit." >&2
 		exit 1
 	fi
+	prepare_prefilled_commit_message
 	echo "LiveReview prepare-commit-msg: attestation present for $TREE_HASH; proceeding" >&2
 	exit 0
 fi
@@ -70,6 +100,7 @@ trap cleanup_lock EXIT INT TERM
 TREE_HASH="$(git write-tree 2>/dev/null || true)"
 ATTEST_FILE="$ATTEST_DIR/$TREE_HASH.json"
 if [ -n "$TREE_HASH" ] && [ -f "$ATTEST_FILE" ]; then
+	prepare_prefilled_commit_message
 	echo "LiveReview: attestation already present for $TREE_HASH; proceeding with commit" >&2
 	echo "ran:$$:$(date +%s)" > "${STATE_FILE}.tmp"
 	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
@@ -130,6 +161,7 @@ rm -f "$INITIAL_MSG_FILE"
 
 # Check exit code
 if [ $REVIEW_EXIT -eq 0 ]; then
+	prepare_prefilled_commit_message
 	echo "ran:$$:$(date +%s)" > "${STATE_FILE}.tmp"
 	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
 	exit 0

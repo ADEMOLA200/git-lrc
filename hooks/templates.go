@@ -51,9 +51,10 @@ func GeneratePreCommitHook(cfg TemplateConfig) string {
 
 func GeneratePrepareCommitMsgHook(cfg TemplateConfig) string {
 	return mustRenderTemplate("prepare-commit-msg.sh", map[string]string{
-		hookMarkerBeginPlaceholder: cfg.MarkerBegin,
-		hookMarkerEndPlaceholder:   cfg.MarkerEnd,
-		hookVersionPlaceholder:     cfg.Version,
+		hookMarkerBeginPlaceholder:       cfg.MarkerBegin,
+		hookMarkerEndPlaceholder:         cfg.MarkerEnd,
+		hookVersionPlaceholder:           cfg.Version,
+		hookCommitMessageFilePlaceholder: cfg.CommitMessageFile,
 	})
 }
 

@@ -1,6 +1,9 @@
 package hooks
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,10 +46,14 @@ func TestGeneratedHooksUseResolvedGitDirPaths(t *testing.T) {
 			hook: GeneratePrepareCommitMsgHook(cfg),
 			contains: []string{
 				"GIT_DIR=\"$(git rev-parse --git-dir 2>/dev/null || echo .git)\"",
+				"COMMIT_MSG_OVERRIDE=\"$GIT_DIR/livereview_commit_message\"",
+				"EDITOR_OVERRIDE_STATE=\"$GIT_DIR/livereview_editor_override\"",
 				"DISABLED_GIT_FILE=\"$LRC_DIR/disabled-git\"",
 				"STATE_FILE=\"$GIT_DIR/livereview_state\"",
 				"LOCK_DIR=\"$GIT_DIR/livereview_state.lock\"",
 				"INITIAL_MSG_FILE=\"$GIT_DIR/livereview_initial_message.$$\"",
+				"cat \"$COMMIT_MSG_OVERRIDE\" > \"$COMMIT_MSG_FILE\" 2>/dev/null || true",
+				"git config --local core.editor true >/dev/null 2>&1 || true",
 			},
 			forbidden: []string{
 				"LRC_DIR=\".git/lrc\"",
@@ -60,9 +67,11 @@ func TestGeneratedHooksUseResolvedGitDirPaths(t *testing.T) {
 			hook: GenerateCommitMsgHook(cfg),
 			contains: []string{
 				"GIT_DIR=\"$(git rev-parse --git-dir 2>/dev/null || echo .git)\"",
+				"EDITOR_OVERRIDE_STATE=\"$GIT_DIR/livereview_editor_override\"",
 				"DISABLED_GIT_FILE=\"$LRC_DIR/disabled-git\"",
 				"COMMIT_MSG_OVERRIDE=\"$GIT_DIR/livereview_commit_message\"",
 				"STATE_FILE=\"$GIT_DIR/livereview_state\"",
+				"git config --local --unset core.editor >/dev/null 2>&1 || true",
 			},
 			forbidden: []string{
 				"COMMIT_MSG_OVERRIDE=\".git/livereview_commit_message\"",
@@ -116,5 +125,113 @@ func TestGeneratedHooksUseResolvedGitDirPaths(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPrepareCommitMsgHookPrefillsReviewedMessageBeforeEditor(t *testing.T) {
+	if _, err := exec.LookPath("script"); err != nil {
+		t.Skip("script command not available")
+	}
+
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo")
+	hooksDir := filepath.Join(repoDir, ".git", "myhooks")
+	binDir := filepath.Join(tmpDir, "bin")
+	editorMarker := filepath.Join(tmpDir, "editor-ran")
+	editorScript := filepath.Join(tmpDir, "editor.sh")
+
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", hooksDir, err)
+	}
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", binDir, err)
+	}
+
+	run := func(dir string, env []string, name string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s %v failed: %v\n%s", name, args, err, string(out))
+		}
+	}
+
+	run(tmpDir, nil, "git", "init", "--initial-branch=main", repoDir)
+	run(repoDir, nil, "git", "config", "user.email", "test@example.com")
+	run(repoDir, nil, "git", "config", "user.name", "Test User")
+
+	prepareHook := GeneratePrepareCommitMsgHook(testTemplateConfig())
+	prepareHookPath := filepath.Join(hooksDir, "prepare-commit-msg")
+	if err := os.WriteFile(prepareHookPath, []byte(prepareHook), 0755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", prepareHookPath, err)
+	}
+
+	commitHook := GenerateCommitMsgHook(testTemplateConfig())
+	commitHookPath := filepath.Join(hooksDir, "commit-msg")
+	if err := os.WriteFile(commitHookPath, []byte(commitHook), 0755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", commitHookPath, err)
+	}
+
+	fakeLRCPath := filepath.Join(binDir, "lrc")
+	fakeLRC := `#!/bin/sh
+set -eu
+if [ "$1" = "review" ]; then
+  git_dir="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+  printf 'chosen message\n' > "$git_dir/livereview_commit_message"
+  exit 0
+fi
+exit 0
+`
+	if err := os.WriteFile(fakeLRCPath, []byte(fakeLRC), 0755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", fakeLRCPath, err)
+	}
+
+	editorBody := "#!/bin/sh\nprintf 'editor-ran\\n' > \"MARKER\"\nexit 0\n"
+	editorBody = strings.ReplaceAll(editorBody, "MARKER", editorMarker)
+	if err := os.WriteFile(editorScript, []byte(editorBody), 0755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", editorScript, err)
+	}
+	run(repoDir, nil, "git", "config", "core.editor", editorScript)
+
+	trackedFile := filepath.Join(repoDir, "note.txt")
+	if err := os.WriteFile(trackedFile, []byte("hello\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", trackedFile, err)
+	}
+	run(repoDir, nil, "git", "add", "note.txt")
+
+	env := append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmdText := "git -c core.hooksPath=.git/myhooks -c commit.cleanup=strip commit"
+	cmd := exec.Command("script", "-qec", cmdText, "/dev/null")
+	cmd.Dir = repoDir
+	cmd.Env = env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("plain git commit with generated prepare-commit-msg hook failed: %v\n%s", err, string(output))
+	}
+
+	if _, err := os.Stat(editorMarker); !os.IsNotExist(err) {
+		t.Fatalf("expected editor to be skipped, editor marker stat err = %v", err)
+	}
+
+	logCmd := exec.Command("git", "log", "--format=%s", "-1")
+	logCmd.Dir = repoDir
+	logOutput, err := logCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log failed: %v\n%s", err, string(logOutput))
+	}
+	if got := strings.TrimSpace(string(logOutput)); got != "chosen message" {
+		t.Fatalf("commit subject = %q, want %q", got, "chosen message")
+	}
+
+	configCmd := exec.Command("git", "config", "--local", "--get", "core.editor")
+	configCmd.Dir = repoDir
+	configOutput, err := configCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git config --local --get core.editor failed: %v\n%s", err, string(configOutput))
+	}
+	if got := strings.TrimSpace(string(configOutput)); got != editorScript {
+		t.Fatalf("core.editor should be restored after commit, got %q want %q", got, editorScript)
 	}
 }
