@@ -358,6 +358,7 @@ Pick the right place based on what you need:
 - **Discord**: [discord.gg/sGdnKwB3qq](https://discord.gg/sGdnKwB3qq) - Best for joining the community, asking general Q&A, and having quick back-and-forth with the team.
 - **GitHub Discussions**: [github.com/HexmosTech/git-lrc/discussions](https://github.com/HexmosTech/git-lrc/discussions) - For in-depth idea proposals, scoping, design discussions, modification proposals, and constructive criticism.
 - **GitHub Issues**: [github.com/HexmosTech/git-lrc/issues](https://github.com/HexmosTech/git-lrc/issues) - For concrete, scoped tasks such as bugs, focused feature requests, and actionable implementation work.
+- **Contributing Guide**: See [CONTRIBUTING.md](./CONTRIBUTING.md) for contributor workflow, local setup, testing expectations, and pull request guidance.
 
 ## License
 
