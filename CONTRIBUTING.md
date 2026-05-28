@@ -9,11 +9,22 @@
 - Keep storage and file operations in `storage/`, and keep network operations in `network/`.
 - If your change touches UI, a GIF or video walkthrough is required in the PR. This is a hard requirement.
 - If your change affects `storage/` or `network/`, update the matching status doc and run `make check-status-doc`.
+- Private security reports should go through GitHub Security Advisories, not public issues.
+- git-lrc runs locally by default. Code leaves the machine when you submit reviews or run setup or update flows that call remote APIs.
+- Read [SECURITY.md](./SECURITY.md) if your contribution touches security, data flow, storage, network behavior, or disclosure handling.
 - By contributing, you agree to the Contributor License Agreement.
 
 The ideas behind git-lrc matter, but so does the way changes enter the project.
 
 This guide is here to help you contribute in a way that is clear, scoped, and easy to review.
+
+## Security At A Glance
+
+git-lrc has explicit security and disclosure guidance. Please use it.
+
+- If you are reporting a vulnerability, use the private reporting flow in [SECURITY.md](./SECURITY.md) and open a GitHub Security Advisory instead of a public issue.
+- git-lrc runs locally as a CLI by default. Review, setup, and update flows can call remote APIs; see [SECURITY.md](./SECURITY.md) for the exact runtime and data-flow details.
+- If your change affects storage, network behavior, credentials, review payloads, or disclosure handling, check [SECURITY.md](./SECURITY.md) before opening or updating the PR.
 
 ## Start With the Right Forum
 
