@@ -74,7 +74,6 @@ func resolveRepoContext() (repoRoot, gitDir, gitCommonDir string, err error) {
 	if err != nil {
 		return "", "", "", err
 	}
-
 	gitDir, err = reviewapi.ResolveGitDir()
 	if err != nil {
 		return "", "", "", err
@@ -88,12 +87,31 @@ func resolveRepoContext() (repoRoot, gitDir, gitCommonDir string, err error) {
 	return repoRoot, gitDir, gitCommonDir, nil
 }
 
-// runHooksInstall installs dispatchers and managed hook scripts under either global core.hooksPath or the current repo hooks path when --local is used
-func runHooksInstall(c *cli.Context) error {
+func parseHookInstallSurface(raw string, local bool) (hookSurface, error) {
+	if strings.TrimSpace(raw) == "" {
+		if local {
+			return hookSurfaceGit, nil
+		}
+		return hookSurfaceAll, nil
+	}
+
+	surface, err := parseHookSurface(raw)
+	if err != nil {
+		return "", err
+	}
+	if local && surface != hookSurfaceGit {
+		return "", fmt.Errorf("--local only supports --surface git")
+	}
+	return surface, nil
+}
+
+// installGitHookSurface installs dispatchers and managed hook scripts under either global core.hooksPath or the current repo hooks path when --local is used.
+func installGitHookSurface(c *cli.Context) error {
 	localInstall := c.Bool("local")
 	requestedPath := strings.TrimSpace(c.String("path"))
 	var hooksPath string
 	var prevGlobalPath string
+	var gitDir string
 	setConfig := false
 
 	if localInstall {
@@ -101,10 +119,11 @@ func runHooksInstall(c *cli.Context) error {
 			return fmt.Errorf("not in a git repository (no .git directory found)")
 		}
 
-		repoRoot, _, gitCommonDir, err := resolveRepoContext()
+		repoRoot, resolvedGitDir, gitCommonDir, err := resolveRepoContext()
 		if err != nil {
 			return err
 		}
+		gitDir = resolvedGitDir
 		hooksPath, err = resolveRepoHooksPath(repoRoot, gitCommonDir)
 		if err != nil {
 			return err
@@ -158,6 +177,16 @@ func runHooksInstall(c *cli.Context) error {
 		return err
 	}
 
+	if localInstall {
+		if err := installEditorWrapper(gitDir); err != nil {
+			return fmt.Errorf("failed to install local editor wrapper: %w", err)
+		}
+	} else {
+		if err := installGlobalEditorWrapper(managedDir); err != nil {
+			return fmt.Errorf("failed to install global editor wrapper: %w", err)
+		}
+	}
+
 	for _, hookName := range managedHooks {
 		hookPath := filepath.Join(absHooksPath, hookName)
 		dispatcher := generateDispatcherHook(hookName)
@@ -184,20 +213,56 @@ func runHooksInstall(c *cli.Context) error {
 	return nil
 }
 
-// runHooksUninstall removes lrc-managed sections from dispatchers and managed scripts (global or local)
-func runHooksUninstall(c *cli.Context) error {
+// runHooksInstall installs Git and/or Claude hook integrations depending on the selected surface.
+func runHooksInstall(c *cli.Context) error {
+	localInstall := c.Bool("local")
+	surface, err := parseHookInstallSurface(c.String("surface"), localInstall)
+	if err != nil {
+		return err
+	}
+
+	if surface == hookSurfaceAll || surface == hookSurfaceGit {
+		if err := installGitHookSurface(c); err != nil {
+			return err
+		}
+	}
+
+	if !localInstall && (surface == hookSurfaceAll || surface == hookSurfaceClaude) {
+		claudeState, err := installClaudeGlobalHooks()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("✅ LiveReview Claude hooks installed at %s\n", claudeState.HooksDir)
+		fmt.Printf("✅ Claude user settings updated at %s\n", claudeState.SettingsPath)
+	}
+
+	if !localInstall {
+		if repoRoot, _, _, err := resolveRepoContext(); err == nil {
+			if _, err := removeLegacyRepoClaudeIntegration(repoRoot); err != nil {
+				return fmt.Errorf("failed to remove legacy repo-local Claude hook files: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// uninstallGitHookSurface removes lrc-managed sections from dispatchers and managed scripts (global or local).
+func uninstallGitHookSurface(c *cli.Context) error {
 	localUninstall := c.Bool("local")
 	requestedPath := strings.TrimSpace(c.String("path"))
 	var hooksPath string
+	var gitDir string
 
 	if localUninstall {
 		if !isGitRepository() {
 			return fmt.Errorf("not in a git repository (no .git directory found)")
 		}
-		repoRoot, _, gitCommonDir, err := resolveRepoContext()
+		repoRoot, resolvedGitDir, gitCommonDir, err := resolveRepoContext()
 		if err != nil {
 			return err
 		}
+		gitDir = resolvedGitDir
 		hooksPath, err = resolveRepoHooksPath(repoRoot, gitCommonDir)
 		if err != nil {
 			return err
@@ -227,6 +292,16 @@ func runHooksUninstall(c *cli.Context) error {
 	var meta *hooksMeta
 	if !localUninstall {
 		meta, _ = readHooksMeta(absHooksPath)
+	}
+
+	if localUninstall {
+		if err := uninstallEditorWrapper(gitDir); err != nil {
+			fmt.Printf("⚠️  Warning: failed to uninstall local editor wrapper: %v\n", err)
+		}
+	} else {
+		if err := uninstallGlobalEditorWrapper(filepath.Join(absHooksPath, "lrc")); err != nil {
+			fmt.Printf("⚠️  Warning: failed to uninstall global editor wrapper: %v\n", err)
+		}
 	}
 
 	removed := 0
@@ -294,6 +369,31 @@ func runHooksUninstall(c *cli.Context) error {
 	return nil
 }
 
+// runHooksUninstall removes Git and/or Claude hook integrations depending on the selected surface.
+func runHooksUninstall(c *cli.Context) error {
+	localUninstall := c.Bool("local")
+	surface, err := parseHookInstallSurface(c.String("surface"), localUninstall)
+	if err != nil {
+		return err
+	}
+
+	if !localUninstall && (surface == hookSurfaceAll || surface == hookSurfaceClaude) {
+		claudeState, err := uninstallClaudeGlobalHooks()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("✅ Removed LiveReview Claude hook integration from %s\n", claudeState.SettingsPath)
+	}
+
+	if surface == hookSurfaceAll || surface == hookSurfaceGit {
+		if err := uninstallGitHookSurface(c); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // pathsEqual compares two filesystem paths robustly, resolving symlinks
 func pathsEqual(a, b string) bool {
 	return hooksvc.PathsEqual(a, b)
@@ -304,23 +404,167 @@ func cleanEmptyHooksDir(dir string) {
 	hooksvc.CleanEmptyHooksDir(dir)
 }
 
+type hookSurface string
+
+const (
+	hookSurfaceAll    hookSurface = "all"
+	hookSurfaceGit    hookSurface = "git"
+	hookSurfaceClaude hookSurface = "claude"
+)
+
+type repoHookSurfaceState struct {
+	gitDisabled    bool
+	claudeDisabled bool
+}
+
+func parseHookSurface(raw string) (hookSurface, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", string(hookSurfaceAll):
+		return hookSurfaceAll, nil
+	case string(hookSurfaceGit):
+		return hookSurfaceGit, nil
+	case string(hookSurfaceClaude):
+		return hookSurfaceClaude, nil
+	default:
+		return "", fmt.Errorf("invalid --surface %q (want all, git, or claude)", raw)
+	}
+}
+
+func repoLRCStateDir(gitDir string) string {
+	return filepath.Join(gitDir, "lrc")
+}
+
+func repoHooksDisabledMarker(lrcDir string) string {
+	return filepath.Join(lrcDir, "disabled")
+}
+
+func repoGitHooksDisabledMarker(lrcDir string) string {
+	return filepath.Join(lrcDir, "disabled-git")
+}
+
+func repoClaudeHooksDisabledMarker(lrcDir string) string {
+	return filepath.Join(lrcDir, "disabled-claude")
+}
+
+func readRepoHookSurfaceState(gitDir string) repoHookSurfaceState {
+	lrcDir := repoLRCStateDir(gitDir)
+	if fileExists(repoHooksDisabledMarker(lrcDir)) {
+		return repoHookSurfaceState{gitDisabled: true, claudeDisabled: true}
+	}
+	return repoHookSurfaceState{
+		gitDisabled:    fileExists(repoGitHooksDisabledMarker(lrcDir)),
+		claudeDisabled: fileExists(repoClaudeHooksDisabledMarker(lrcDir)),
+	}
+}
+
+func updateRepoHookSurfaceState(current repoHookSurfaceState, surface hookSurface, disabled bool) repoHookSurfaceState {
+	next := current
+	switch surface {
+	case hookSurfaceAll:
+		next.gitDisabled = disabled
+		next.claudeDisabled = disabled
+	case hookSurfaceGit:
+		next.gitDisabled = disabled
+	case hookSurfaceClaude:
+		next.claudeDisabled = disabled
+	}
+	return next
+}
+
+func writeRepoHookSurfaceState(gitDir string, state repoHookSurfaceState) error {
+	lrcDir := repoLRCStateDir(gitDir)
+	if state.gitDisabled || state.claudeDisabled {
+		if err := storage.EnsureRepoLRCStateDir(lrcDir); err != nil {
+			return fmt.Errorf("failed to create lrc directory: %w", err)
+		}
+	}
+
+	markers := []string{
+		repoHooksDisabledMarker(lrcDir),
+		repoGitHooksDisabledMarker(lrcDir),
+		repoClaudeHooksDisabledMarker(lrcDir),
+	}
+	for _, marker := range markers {
+		if err := storage.RemoveRepoHooksStateMarker(marker); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	var marker string
+	switch {
+	case state.gitDisabled && state.claudeDisabled:
+		marker = repoHooksDisabledMarker(lrcDir)
+	case state.gitDisabled:
+		marker = repoGitHooksDisabledMarker(lrcDir)
+	case state.claudeDisabled:
+		marker = repoClaudeHooksDisabledMarker(lrcDir)
+	default:
+		return nil
+	}
+
+	if err := storage.WriteFile(marker, []byte("disabled\n"), 0644); err != nil {
+		return fmt.Errorf("failed to write disable marker: %w", err)
+	}
+	return nil
+}
+
+func hookSurfaceLabel(surface hookSurface) string {
+	switch surface {
+	case hookSurfaceGit:
+		return "Git hooks"
+	case hookSurfaceClaude:
+		return "Claude hooks"
+	default:
+		return "LiveReview hooks"
+	}
+}
+
+func effectiveHookSurfaceDisabled(state repoHookSurfaceState, surface hookSurface) bool {
+	switch surface {
+	case hookSurfaceGit:
+		return state.gitDisabled
+	case hookSurfaceClaude:
+		return state.claudeDisabled
+	default:
+		return state.gitDisabled || state.claudeDisabled
+	}
+}
+
+func hookSurfaceStatusMarker(gitDir string, surface hookSurface) string {
+	lrcDir := repoLRCStateDir(gitDir)
+	if fileExists(repoHooksDisabledMarker(lrcDir)) {
+		return repoHooksDisabledMarker(lrcDir)
+	}
+	switch surface {
+	case hookSurfaceGit:
+		if fileExists(repoGitHooksDisabledMarker(lrcDir)) {
+			return repoGitHooksDisabledMarker(lrcDir)
+		}
+	case hookSurfaceClaude:
+		if fileExists(repoClaudeHooksDisabledMarker(lrcDir)) {
+			return repoClaudeHooksDisabledMarker(lrcDir)
+		}
+	}
+	return ""
+}
+
 func runHooksDisable(c *cli.Context) error {
 	gitDir, err := reviewapi.ResolveGitDir()
 	if err != nil {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	lrcDir := filepath.Join(gitDir, "lrc")
-	if err := storage.EnsureRepoLRCStateDir(lrcDir); err != nil {
-		return fmt.Errorf("failed to create lrc directory: %w", err)
+	surface, err := parseHookSurface(c.String("surface"))
+	if err != nil {
+		return err
+	}
+	current := readRepoHookSurfaceState(gitDir)
+	next := updateRepoHookSurfaceState(current, surface, true)
+	if err := writeRepoHookSurfaceState(gitDir, next); err != nil {
+		return err
 	}
 
-	marker := filepath.Join(lrcDir, "disabled")
-	if err := storage.WriteFile(marker, []byte("disabled\n"), 0644); err != nil {
-		return fmt.Errorf("failed to write disable marker: %w", err)
-	}
-
-	fmt.Println("🔕 LiveReview hooks disabled for this repository")
+	fmt.Printf("🔕 %s disabled for this repository\n", hookSurfaceLabel(surface))
 	return nil
 }
 
@@ -330,12 +574,17 @@ func runHooksEnable(c *cli.Context) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	marker := filepath.Join(gitDir, "lrc", "disabled")
-	if err := storage.RemoveRepoHooksDisabledMarker(marker); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove disable marker: %w", err)
+	surface, err := parseHookSurface(c.String("surface"))
+	if err != nil {
+		return err
+	}
+	current := readRepoHookSurfaceState(gitDir)
+	next := updateRepoHookSurfaceState(current, surface, false)
+	if err := writeRepoHookSurfaceState(gitDir, next); err != nil {
+		return err
 	}
 
-	fmt.Println("🔔 LiveReview hooks enabled for this repository")
+	fmt.Printf("🔔 %s enabled for this repository\n", hookSurfaceLabel(surface))
 	return nil
 }
 
@@ -346,11 +595,20 @@ func hookHasManagedSection(path string) bool {
 func runHooksStatus(c *cli.Context) error {
 	globalHooksPath, _ := currentHooksPath()
 	defaultPath, _ := defaultGlobalHooksPath()
+	surface, err := parseHookSurface(c.String("surface"))
+	if err != nil {
+		return err
+	}
+
+	claudeInstallState, err := claudeGlobalInstallStatus()
+	if err != nil {
+		return err
+	}
 
 	repoRoot, gitDir, gitCommonDir, gitErr := resolveRepoContext()
-	repoDisabled := false
+	repoState := repoHookSurfaceState{}
 	if gitErr == nil {
-		repoDisabled = fileExists(filepath.Join(gitDir, "lrc", "disabled"))
+		repoState = readRepoHookSurfaceState(gitDir)
 	}
 
 	hooksPath := globalHooksPath
@@ -378,17 +636,67 @@ func runHooksStatus(c *cli.Context) error {
 	} else {
 		fmt.Println("global core.hooksPath: not set")
 	}
+	if surface == hookSurfaceAll || surface == hookSurfaceClaude {
+		fmt.Printf("claude settings: %s\n", claudeInstallState.SettingsPath)
+		fmt.Printf("claude skill: %s\n", claudeInstallState.SkillPath)
+		switch {
+		case claudeInstallState.SettingsManaged && claudeInstallState.ValidatorExists && claudeInstallState.WrapperExists:
+			fmt.Println("global claude install: installed")
+		case claudeInstallState.SettingsManaged || claudeInstallState.ValidatorExists || claudeInstallState.WrapperExists:
+			fmt.Println("global claude install: partial")
+		default:
+			fmt.Println("global claude install: not installed")
+		}
+		if claudeInstallState.SkillExists {
+			fmt.Println("global claude skill: installed")
+		} else {
+			fmt.Println("global claude skill: missing")
+		}
+	}
 
 	if gitErr == nil {
-		disabledPath := filepath.Join(gitDir, "lrc", "disabled")
 		fmt.Printf("repo: %s\n", repoRoot)
-		if repoDisabled {
-			fmt.Printf("status: disabled via %s\n", disabledPath)
-		} else {
-			fmt.Println("status: enabled")
+		switch surface {
+		case hookSurfaceAll:
+			switch {
+			case repoState.gitDisabled && repoState.claudeDisabled:
+				fmt.Printf("status: disabled for git and claude via %s\n", hookSurfaceStatusMarker(gitDir, hookSurfaceAll))
+			case repoState.gitDisabled || repoState.claudeDisabled:
+				fmt.Println("status: mixed")
+			default:
+				fmt.Println("status: enabled")
+			}
+			if repoState.gitDisabled {
+				fmt.Printf("git status: disabled via %s\n", hookSurfaceStatusMarker(gitDir, hookSurfaceGit))
+			} else {
+				fmt.Println("git status: enabled")
+			}
+			if repoState.claudeDisabled {
+				fmt.Printf("claude status: disabled via %s\n", hookSurfaceStatusMarker(gitDir, hookSurfaceClaude))
+			} else {
+				fmt.Println("claude status: enabled")
+			}
+		default:
+			if effectiveHookSurfaceDisabled(repoState, surface) {
+				fmt.Printf("%s status: disabled via %s\n", strings.ToLower(hookSurfaceLabel(surface)), hookSurfaceStatusMarker(gitDir, surface))
+			} else {
+				fmt.Printf("%s status: enabled\n", strings.ToLower(hookSurfaceLabel(surface)))
+			}
 		}
 	} else {
 		fmt.Println("repo: not detected")
+	}
+
+	if gitErr == nil && (surface == hookSurfaceAll || surface == hookSurfaceClaude) {
+		legacy := detectLegacyRepoClaudeIntegration(repoRoot)
+		if len(legacy) == 0 {
+			fmt.Println("legacy claude integration: none detected")
+		} else {
+			fmt.Println("legacy claude integration: detected")
+			for _, path := range legacy {
+				fmt.Printf("legacy claude path: %s\n", path)
+			}
+		}
 	}
 
 	for _, hookName := range managedHooks {
@@ -432,34 +740,11 @@ func installEditorWrapper(gitDir string) error {
 	backupPath := filepath.Join(gitDir, editorBackupFile)
 
 	currentEditor, _ := readGitConfig(repoRoot, "core.editor")
-	if currentEditor != "" {
+	if currentEditor != "" && currentEditor != scriptPath {
 		_ = storage.WriteFile(backupPath, []byte(currentEditor), 0600)
 	}
 
-	script := fmt.Sprintf(`#!/bin/sh
-set -e
-
-OVERRIDE_FILE="%s"
-
-if [ -f "$OVERRIDE_FILE" ] && [ -s "$OVERRIDE_FILE" ]; then
-    cat "$OVERRIDE_FILE" > "$1"
-    exit 0
-fi
-
-if [ -n "$LRC_FALLBACK_EDITOR" ]; then
-    exec $LRC_FALLBACK_EDITOR "$@"
-fi
-
-if [ -n "$VISUAL" ]; then
-    exec "$VISUAL" "$@"
-fi
-
-if [ -n "$EDITOR" ]; then
-    exec "$EDITOR" "$@"
-fi
-
-exec vi "$@"
-`, filepath.Join(gitDir, commitMessageFile))
+	script := generateEditorWrapperScript(backupPath)
 
 	if err := storage.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return fmt.Errorf("failed to write editor wrapper: %w", err)
@@ -467,6 +752,31 @@ exec vi "$@"
 
 	if err := setGitConfig(repoRoot, "core.editor", scriptPath); err != nil {
 		return fmt.Errorf("failed to set core.editor: %w", err)
+	}
+
+	return nil
+}
+
+func installGlobalEditorWrapper(managedDir string) error {
+	if err := storage.EnsureHooksPathDir(managedDir); err != nil {
+		return fmt.Errorf("failed to create managed hooks directory for editor wrapper: %w", err)
+	}
+
+	scriptPath := filepath.Join(managedDir, editorWrapperScript)
+	backupPath := filepath.Join(managedDir, editorBackupFile)
+
+	currentEditor, _ := readGlobalGitConfig("core.editor")
+	if currentEditor != "" && currentEditor != scriptPath {
+		_ = storage.WriteFile(backupPath, []byte(currentEditor), 0600)
+	}
+
+	script := generateEditorWrapperScript(backupPath)
+	if err := storage.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		return fmt.Errorf("failed to write global editor wrapper: %w", err)
+	}
+
+	if err := setGlobalGitConfig("core.editor", scriptPath); err != nil {
+		return fmt.Errorf("failed to set global core.editor: %w", err)
 	}
 
 	return nil
@@ -486,7 +796,7 @@ func uninstallEditorWrapper(gitDir string) error {
 		if value != "" {
 			_ = setGitConfig(repoRoot, "core.editor", value)
 		}
-	} else {
+	} else if currentEditor, err := readGitConfig(repoRoot, "core.editor"); err == nil && currentEditor == scriptPath {
 		_ = unsetGitConfig(repoRoot, "core.editor")
 	}
 
@@ -496,9 +806,81 @@ func uninstallEditorWrapper(gitDir string) error {
 	return nil
 }
 
+func uninstallGlobalEditorWrapper(managedDir string) error {
+	scriptPath := filepath.Join(managedDir, editorWrapperScript)
+	backupPath := filepath.Join(managedDir, editorBackupFile)
+
+	if data, err := storage.ReadEditorBackupFile(backupPath); err == nil {
+		value := strings.TrimSpace(string(data))
+		if value != "" {
+			_ = setGlobalGitConfig("core.editor", value)
+		}
+	} else if currentEditor, err := readGlobalGitConfig("core.editor"); err == nil && currentEditor == scriptPath {
+		_ = unsetGlobalGitConfig("core.editor")
+	}
+
+	_ = storage.RemoveEditorWrapperScript(scriptPath)
+	_ = storage.RemoveEditorBackupStateFile(backupPath)
+
+	return nil
+}
+
+func generateEditorWrapperScript(backupPath string) string {
+	return fmt.Sprintf(`#!/bin/sh
+set -e
+
+BACKUP_FILE="%s"
+
+run_editor_command() {
+	editor_cmd="$1"
+	shift
+	exec sh -c 'editor_cmd="$1"; shift; exec $editor_cmd "$@"' sh "$editor_cmd" "$@"
+}
+
+if [ $# -gt 0 ] && [ -n "$1" ]; then
+	TARGET_FILE="$1"
+	TARGET_DIR="$(dirname "$TARGET_FILE")"
+	OVERRIDE_FILE="$TARGET_DIR/%s"
+	OVERRIDE_STATE="$TARGET_DIR/livereview_editor_override"
+
+	if [ -f "$OVERRIDE_STATE" ]; then
+		if [ -f "$OVERRIDE_FILE" ] && [ -s "$OVERRIDE_FILE" ]; then
+			cat "$OVERRIDE_FILE" > "$TARGET_FILE"
+		fi
+		exit 0
+	fi
+fi
+
+if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+	BACKUP_EDITOR="$(cat "$BACKUP_FILE" 2>/dev/null || true)"
+	if [ -n "$BACKUP_EDITOR" ]; then
+		run_editor_command "$BACKUP_EDITOR" "$@"
+	fi
+fi
+
+if [ -n "$LRC_FALLBACK_EDITOR" ]; then
+	run_editor_command "$LRC_FALLBACK_EDITOR" "$@"
+fi
+
+if [ -n "$VISUAL" ]; then
+	run_editor_command "$VISUAL" "$@"
+fi
+
+if [ -n "$EDITOR" ]; then
+	run_editor_command "$EDITOR" "$@"
+fi
+
+exec vi "$@"
+`, backupPath, commitMessageFile)
+}
+
 // readGitConfig reads a single git config key from the repository root.
 func readGitConfig(repoRoot, key string) (string, error) {
 	return gitops.ReadGitConfig(repoRoot, key)
+}
+
+func readGlobalGitConfig(key string) (string, error) {
+	return gitops.ReadGlobalGitConfig(key)
 }
 
 // setGitConfig sets a git config key in the given repository.
@@ -506,9 +888,17 @@ func setGitConfig(repoRoot, key, value string) error {
 	return gitops.SetGitConfig(repoRoot, key, value)
 }
 
+func setGlobalGitConfig(key, value string) error {
+	return gitops.SetGlobalGitConfig(key, value)
+}
+
 // unsetGitConfig removes a git config key in the given repository.
 func unsetGitConfig(repoRoot, key string) error {
 	return gitops.UnsetGitConfig(repoRoot, key)
+}
+
+func unsetGlobalGitConfig(key string) error {
+	return gitops.UnsetGlobalGitConfig(key)
 }
 
 // replaceLrcSection replaces the lrc-managed section in hook content

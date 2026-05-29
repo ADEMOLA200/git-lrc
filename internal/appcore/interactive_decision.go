@@ -13,10 +13,11 @@ import (
 )
 
 type decisionExecutionContext struct {
-	precommit          bool
+	deferCommit        bool
 	verbose            bool
 	initialMsg         string
 	commitMsgPath      string
+	liveCommitMsgPath  string
 	diffContent        []byte
 	reviewID           string
 	attestationWritten *bool
@@ -41,15 +42,21 @@ func executeDecision(code int, message string, push bool, ctx decisionExecutionC
 		syncedPrintln("\n❌ Commit aborted by user")
 		return cli.Exit("", decisionflow.DecisionAbort)
 	case decisionflow.DecisionCommit:
-		if ctx.precommit {
+		if ctx.deferCommit {
 			syncedPrintln("\n✅ Proceeding with commit")
 		}
 		finalMsg := strings.TrimSpace(message)
 		if finalMsg == "" {
 			finalMsg = strings.TrimSpace(ctx.initialMsg)
 		}
-		if ctx.precommit {
-			if ctx.commitMsgPath != "" {
+		if ctx.deferCommit {
+			if ctx.liveCommitMsgPath != "" {
+				if strings.TrimSpace(finalMsg) != "" {
+					if err := persistActiveCommitMessage(ctx.liveCommitMsgPath, finalMsg); err != nil {
+						syncedFprintf(os.Stderr, "Warning: failed to store live commit message: %v\n", err)
+					}
+				}
+			} else if ctx.commitMsgPath != "" {
 				if strings.TrimSpace(finalMsg) != "" {
 					if err := persistCommitMessage(ctx.commitMsgPath, finalMsg); err != nil {
 						syncedFprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
@@ -78,7 +85,7 @@ func executeDecision(code int, message string, push bool, ctx decisionExecutionC
 		if err := ensureAttestation("skipped", ctx.verbose, ctx.attestationWritten); err != nil {
 			return err
 		}
-		if ctx.precommit {
+		if ctx.deferCommit {
 			_ = clearCommitMessageFile(ctx.commitMsgPath)
 			_ = clearPushRequest(ctx.commitMsgPath)
 			return cli.Exit("", decisionflow.DecisionSkip)
@@ -92,7 +99,7 @@ func executeDecision(code int, message string, push bool, ctx decisionExecutionC
 		if err := recordCoverageAndAttest("vouched", ctx.diffContent, ctx.reviewID, ctx.verbose, ctx.attestationWritten); err != nil {
 			return fmt.Errorf("vouch failed: %w", err)
 		}
-		if ctx.precommit {
+		if ctx.deferCommit {
 			_ = clearCommitMessageFile(ctx.commitMsgPath)
 			_ = clearPushRequest(ctx.commitMsgPath)
 			return cli.Exit("", decisionflow.DecisionSkip)

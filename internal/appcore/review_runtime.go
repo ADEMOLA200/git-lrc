@@ -100,6 +100,26 @@ func formatLiveReviewTechnicalDetails(rawBody string) string {
 	return strings.Join(lines, "\n")
 }
 
+func describeDecisionCode(code int, push bool) string {
+	switch code {
+	case decisionflow.DecisionCommit:
+		if push {
+			return "commit-push"
+		}
+		return "commit"
+	case decisionflow.DecisionSkip:
+		return "skip"
+	case decisionflow.DecisionVouch:
+		return "vouch"
+	case decisionflow.DecisionAbort:
+		return "abort"
+	case decisionflow.DecisionHandoff:
+		return "handoff"
+	default:
+		return fmt.Sprintf("unknown:%d", code)
+	}
+}
+
 func runReviewWithOptions(opts reviewopts.Options) error {
 	verbose := opts.Verbose
 	defer func() {
@@ -110,6 +130,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 
 	var tempHTMLPath string
 	var commitMsgPath string
+	var liveCommitMsgPath string
 	attestationAction := ""
 	attestationWritten := false
 	initialMsg := sanitizeInitialMessage(opts.InitialMsg)
@@ -118,11 +139,14 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	// vs a pre-commit review (reviewing staged changes before commit, can commit from UI)
 	// When --commit flag is used, we're always reviewing historical commits (read-only mode)
 	isPostCommitReview := opts.DiffSource == "commit"
+	useBlockingReview := opts.BlockingReview && !isPostCommitReview
+	deferCommit := opts.Precommit || useBlockingReview
 
 	// Interactive flow (Web UI with commit actions) is the default when --serve is enabled
 	// BUT: disable interactive actions when reviewing historical commits (isPostCommitReview)
 	// Skip interactive mode if explicitly using --skip, not serving, or reviewing history
-	useInteractive := !opts.Skip && opts.Serve && !isPostCommitReview
+	useInteractive := !useBlockingReview && !opts.Skip && opts.Serve && !isPostCommitReview
+	useDecisionUI := !opts.Skip && opts.Serve && !isPostCommitReview
 
 	// Short-circuit skip: collect diff for coverage tracking, write attestation, exit
 	if opts.Skip {
@@ -197,13 +221,14 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		return nil
 	}
 
-	if opts.Precommit {
+	if deferCommit {
 		gitDir, err := reviewapi.ResolveGitDir()
 		if err != nil {
-			return fmt.Errorf("precommit mode requires a git repository: %w", err)
+			return fmt.Errorf("blocking review requires a git repository: %w", err)
 		}
 		commitMsgPath = filepath.Join(gitDir, commitMessageFile)
 		_ = clearCommitMessageFile(commitMsgPath)
+		liveCommitMsgPath = strings.TrimSpace(os.Getenv(activeCommitMessageFileEnv))
 	}
 
 	// Handle --force: delete existing attestation if present
@@ -355,7 +380,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 			submissionFailed = true
 			submissionBlockedReason = "Usage quota exceeded"
 			var upgradeURL string
-			
+
 			// Try to parse structured error payload for a better message
 			var payload reviewmodel.APIErrorPayload
 			if jErr := json.Unmarshal([]byte(apiErr.Body), &payload); jErr == nil && payload.Error != "" {
@@ -432,14 +457,15 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	// Recalculate useInteractive now that opts.Serve may have been auto-enabled
 	// This is critical for Case 1 (hook-based terminal invocation) where serve is auto-enabled
 	// and we need the interactive flow with commit/push/skip options
-	useInteractive = !opts.Skip && opts.Serve && !isPostCommitReview
+	useInteractive = !useBlockingReview && !opts.Skip && opts.Serve && !isPostCommitReview
+	useDecisionUI = !opts.Skip && opts.Serve && !isPostCommitReview
 	reviewMetadata := buildDecisionMetadata(reviewID, submitResp.UserEmail, submitResp.FriendlyName, reviewURL)
 	var runningDraftHub *draftHub
-	if useInteractive {
+	if useDecisionUI {
 		runningDraftHub = newDraftHub(initialMsg)
 	}
 
-	if !useInteractive && !submissionFailed {
+	if !useDecisionUI && !submissionFailed {
 		fmt.Printf("Review submitted, ID: %s\n", reviewID)
 		if submitResp.UserEmail != "" {
 			fmt.Printf("Account: %s\n", submitResp.UserEmail)
@@ -464,7 +490,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 
 		// Initialize global review state for API-based UI
 		reviewStateMu.Lock()
-		currentReviewState = NewReviewState(reviewID, filesFromDiff, useInteractive, isPostCommitReview, initialMsg, config.APIURL)
+		currentReviewState = NewReviewState(reviewID, filesFromDiff, useDecisionUI, isPostCommitReview, initialMsg, config.APIURL)
 		if submitResp.FriendlyName != "" {
 			currentReviewState.FriendlyName = submitResp.FriendlyName
 		}
@@ -487,7 +513,10 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 
 		serveURL := fmt.Sprintf("http://localhost:%d/?r=%s", opts.Port, url.QueryEscape(reviewID))
 		reviewMetadata = append(reviewMetadata, fmt.Sprintf("Local review: %s", serveURL))
-		if !useInteractive {
+		if useBlockingReview {
+			fmt.Printf("\n🌐 Blocking review available at: %s\n", highlightURL(serveURL))
+			fmt.Printf("   Waiting for a browser decision before the caller can continue\n\n")
+		} else if !useDecisionUI {
 			fmt.Printf("\n🌐 Review available at: %s\n", highlightURL(serveURL))
 			fmt.Printf("   Comments will appear progressively as review runs\n\n")
 		}
@@ -496,7 +525,10 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		defer unregister()
 
 		// Auto-open the review in the default browser
-		openURL(serveURL)
+		if err := openURL(serveURL); err != nil {
+			fmt.Fprintf(os.Stderr, "LiveReview: failed to open browser automatically (%v)\n", err)
+			fmt.Fprintf(os.Stderr, "LiveReview: open %s manually\n", serveURL)
+		}
 
 		// Mark that progressive loading is active
 		progressiveLoadingActive = true
@@ -505,6 +537,9 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		progressiveDecisionChan = make(chan progressiveDecision, 1)
 		progressiveDecide = func(code int, message string, push bool) {
 			progressiveDecideOnce.Do(func() {
+				if useBlockingReview {
+					fmt.Fprintf(os.Stderr, "\nLiveReview: queued browser decision (%s)\n", describeDecisionCode(code, push))
+				}
 				progressiveDecisionChan <- progressiveDecision{code: code, message: message, push: push}
 			})
 		}
@@ -558,6 +593,9 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 
 			if runningDraftHub != nil {
 				runningDraftHub.Freeze()
+			}
+			if useBlockingReview {
+				fmt.Fprintf(os.Stderr, "\nLiveReview: browser decision accepted (%s)\n", describeDecisionCode(chosen.Code, chosen.Push))
 			}
 			progressiveDecide(chosen.Code, chosen.Message, chosen.Push)
 			w.WriteHeader(http.StatusOK)
@@ -1031,10 +1069,11 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 							message = initialMsg
 						}
 						return executeDecision(decisionCode, message, decisionPush, decisionExecutionContext{
-							precommit:          opts.Precommit,
+							deferCommit:        deferCommit,
 							verbose:            verbose,
 							initialMsg:         initialMsg,
 							commitMsgPath:      commitMsgPath,
+							liveCommitMsgPath:  liveCommitMsgPath,
 							diffContent:        diffContent,
 							reviewID:           reviewID,
 							attestationWritten: &attestationWritten,
@@ -1100,14 +1139,126 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 				message = initialMsg
 			}
 			return executeDecision(decisionCode, message, decisionPush, decisionExecutionContext{
-				precommit:          opts.Precommit,
+				deferCommit:        deferCommit,
 				verbose:            verbose,
 				initialMsg:         initialMsg,
 				commitMsgPath:      commitMsgPath,
+				liveCommitMsgPath:  liveCommitMsgPath,
 				diffContent:        diffContent,
 				reviewID:           reviewID,
 				attestationWritten: &attestationWritten,
 			})
+		}
+	}
+
+	if useBlockingReview {
+		if submissionFailed || reviewID == "" {
+			if submissionBlockedReason != "" {
+				return cli.Exit(submissionBlockedReason, 1)
+			}
+			return cli.Exit("LiveReview: blocking review could not start", 1)
+		}
+
+		blockingTimeout := opts.BlockingReviewTimeout
+		if blockingTimeout <= 0 {
+			blockingTimeout = reviewopts.DefaultBlockingReviewTimeout
+		}
+		blockingTimer := time.NewTimer(blockingTimeout)
+		defer blockingTimer.Stop()
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(sigChan)
+
+		if progressiveSubmit != nil {
+			go func() {
+				<-sigChan
+				progressiveSubmit(decisionruntime.SourceSignal, decisionflow.DecisionAbort, "", false)
+			}()
+		}
+
+		var pollResult *reviewmodel.DiffReviewResponse
+		var pollErr error
+		var pollUpdatedConfig Config
+		pollUsedRecovery := false
+		pollDone := make(chan struct{})
+		stopPoll := make(chan struct{})
+		var stopPollOnce sync.Once
+		stopPollFn := func() { stopPollOnce.Do(func() { close(stopPoll) }) }
+
+		go func() {
+			defer close(pollDone)
+			if fakeMode {
+				pollResult, pollErr = pollReviewFake(reviewID, opts.PollInterval, fakeWait, verbose, stopPoll, fakeBaseFiles, nil)
+			} else {
+				pollUsedRecovery = true
+				pollResult, pollUpdatedConfig, pollErr = pollReviewWithRecovery(*config, reviewID, opts.PollInterval, blockingTimeout, verbose, stopPoll, nil)
+			}
+		}()
+
+		for {
+			select {
+			case <-blockingTimer.C:
+				stopPollFn()
+				reviewStateMu.Lock()
+				if currentReviewState != nil {
+					currentReviewState.SetFailed(fmt.Sprintf("blocking review timed out after %s", blockingTimeout))
+				}
+				reviewStateMu.Unlock()
+				return cli.Exit(fmt.Sprintf("LiveReview: blocking review timed out after %s", blockingTimeout), 1)
+			case decision := <-progressiveDecisionChan:
+				stopPollFn()
+				if pollDone != nil {
+					<-pollDone
+				}
+				if pollUsedRecovery {
+					config = &pollUpdatedConfig
+				}
+				if pollErr != nil && !errors.Is(pollErr, reviewapi.ErrPollCancelled) {
+					return fmt.Errorf("failed to stop review polling cleanly: %w", pollErr)
+				}
+				return executeDecision(decision.code, decision.message, decision.push, decisionExecutionContext{
+					deferCommit:        true,
+					verbose:            verbose,
+					initialMsg:         initialMsg,
+					commitMsgPath:      commitMsgPath,
+					liveCommitMsgPath:  liveCommitMsgPath,
+					diffContent:        diffContent,
+					reviewID:           reviewID,
+					attestationWritten: &attestationWritten,
+				})
+			case <-pollDone:
+				if pollUsedRecovery {
+					config = &pollUpdatedConfig
+				}
+				progressiveRuntime.SetPhase(decisionflow.PhaseReviewComplete)
+				if pollErr != nil {
+					reviewStateMu.Lock()
+					if currentReviewState != nil {
+						currentReviewState.SetFailed(pollErr.Error())
+					}
+					reviewStateMu.Unlock()
+					var apiErr *reviewmodel.APIError
+					if errors.As(pollErr, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+						return liveReviewAuthFailureError(config.APIURL, formatLiveReviewTechnicalDetails(apiErr.Body))
+					}
+					if reviewURL != "" {
+						return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+					}
+					return fmt.Errorf("failed to poll review: %w", pollErr)
+				}
+				result = pollResult
+				reviewStateMu.Lock()
+				if currentReviewState != nil && pollResult != nil {
+					currentReviewState.UpdateFromResult(pollResult)
+				}
+				reviewStateMu.Unlock()
+				attestationAction = "reviewed"
+				if err := recordCoverageAndAttest("reviewed", diffContent, reviewID, verbose, &attestationWritten); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+				}
+				fmt.Printf("Review complete. Choose commit, commit-push, skip, vouch, or abort in the browser before %s elapses.\n", blockingTimeout)
+				pollDone = nil
+			}
 		}
 	}
 
@@ -1151,7 +1302,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	// Skip if progressive loading is active - the browser already has the skeleton HTML
 	// and will receive error/completion via the events API
 	if htmlPath := opts.SaveHTML; htmlPath != "" && !progressiveLoadingActive {
-		if err := saveHTMLOutput(htmlPath, result, verbose, useInteractive, isPostCommitReview, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
+		if err := saveHTMLOutput(htmlPath, result, verbose, useDecisionUI, isPostCommitReview, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
@@ -1266,10 +1417,11 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 				stopTUI()
 				<-tuiDone
 				return executeDecision(decision.code, decision.message, decision.push, decisionExecutionContext{
-					precommit:          opts.Precommit,
+					deferCommit:        deferCommit,
 					verbose:            verbose,
 					initialMsg:         initialMsg,
 					commitMsgPath:      commitMsgPath,
+					liveCommitMsgPath:  liveCommitMsgPath,
 					diffContent:        diffContent,
 					reviewID:           reviewID,
 					attestationWritten: &attestationWritten,
@@ -1293,7 +1445,11 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 							}
 
 							if strings.TrimSpace(msgToPersist) != "" {
-								if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
+								if liveCommitMsgPath != "" {
+									if err := persistActiveCommitMessage(liveCommitMsgPath, msgToPersist); err != nil {
+										fmt.Fprintf(os.Stderr, "Warning: failed to store live commit message: %v\n", err)
+									}
+								} else if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
 									fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
 								}
 							} else {
@@ -1317,10 +1473,11 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 
 				// Non-hook interactive: execute commit (and optional push) directly
 				return executeDecision(code, msg, push, decisionExecutionContext{
-					precommit:          false,
+					deferCommit:        deferCommit,
 					verbose:            verbose,
 					initialMsg:         initialMsg,
 					commitMsgPath:      commitMsgPath,
+					liveCommitMsgPath:  liveCommitMsgPath,
 					diffContent:        diffContent,
 					reviewID:           reviewID,
 					attestationWritten: &attestationWritten,
@@ -1352,7 +1509,7 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	}
 
 	// Render result to stdout (skip in interactive mode or when serving - handled by UI)
-	if !useInteractive && !opts.Serve {
+	if !useDecisionUI && !opts.Serve {
 		if err := renderResult(result, opts.Output); err != nil {
 			return fmt.Errorf("failed to render result: %w", err)
 		}
@@ -2120,7 +2277,10 @@ func serveHTML(htmlPath string, port int, ln net.Listener) error {
 	// Try to open browser
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		openURL(url)
+		if err := openURL(url); err != nil {
+			fmt.Fprintf(os.Stderr, "LiveReview: failed to open browser automatically (%v)\n", err)
+			fmt.Fprintf(os.Stderr, "LiveReview: open %s manually\n", url)
+		}
 	}()
 
 	// Setup HTTP handler
@@ -2143,29 +2303,56 @@ func serveHTML(htmlPath string, port int, ln net.Listener) error {
 // https://stackoverflow.com/questions/39320371/how-start-web-server-to-open-page-in-browser-in-golang
 // openURL opens the specified URL in the default browser of the user.
 func openURL(url string) error {
-	var cmd string
-	var args []string
+	type browserCommand struct {
+		name string
+		args []string
+	}
+
+	commands := make([]browserCommand, 0, 4)
+	addIfPresent := func(name string, args ...string) {
+		if _, err := exec.LookPath(name); err == nil {
+			commands = append(commands, browserCommand{name: name, args: args})
+		}
+	}
 
 	switch runtime.GOOS {
 	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
+		addIfPresent("rundll32", "url.dll,FileProtocolHandler", url)
 	case "darwin":
-		cmd = "open"
-		args = []string{url}
-	default: // "linux", "freebsd", "openbsd", "netbsd"
-		// Check if running under WSL
-		if isWSL() {
-			// Use 'cmd.exe /c start' to open the URL in the default Windows browser
-			cmd = "cmd.exe"
-			args = []string{"/c", "start", url}
-		} else {
-			// Use xdg-open on native Linux environments
-			cmd = "xdg-open"
-			args = []string{url}
+		addIfPresent("open", url)
+	default:
+		if browser := strings.TrimSpace(os.Getenv("BROWSER")); browser != "" {
+			addIfPresent(browser, url)
 		}
+		if isWSL() {
+			addIfPresent("wslview", url)
+			addIfPresent("cmd.exe", "/c", "start", "", url)
+			addIfPresent("powershell.exe", "-NoProfile", "-Command", "Start-Process", url)
+		}
+		addIfPresent("xdg-open", url)
 	}
-	return exec.Command(cmd, args...).Start()
+
+	if len(commands) == 0 {
+		return fmt.Errorf("no supported browser opener found")
+	}
+
+	var launchErrs []string
+	for _, candidate := range commands {
+		cmd := exec.Command(candidate.name, candidate.args...)
+		if err := cmd.Start(); err != nil {
+			launchErrs = append(launchErrs, fmt.Sprintf("%s: %v", candidate.name, err))
+			continue
+		}
+
+		go func(name string, waitCmd *exec.Cmd) {
+			if err := waitCmd.Wait(); err != nil {
+				fmt.Fprintf(os.Stderr, "LiveReview: browser opener %s exited with error: %v\n", name, err)
+			}
+		}(candidate.name, cmd)
+		return nil
+	}
+
+	return errors.New(strings.Join(launchErrs, "; "))
 }
 
 // isWSL checks if the Go program is running inside Windows Subsystem for Linux
@@ -2232,6 +2419,21 @@ func persistCommitMessage(commitMsgPath, message string) error {
 
 	normalized := trimmed + "\n"
 	return storage.WriteFile(commitMsgPath, []byte(normalized), 0600)
+}
+
+// persistActiveCommitMessage writes directly into Git's live commit message file.
+func persistActiveCommitMessage(liveCommitMsgPath, message string) error {
+	if strings.TrimSpace(liveCommitMsgPath) == "" {
+		return nil
+	}
+
+	trimmed := strings.TrimRight(message, "\r\n")
+	if strings.TrimSpace(trimmed) == "" {
+		return nil
+	}
+
+	normalized := trimmed + "\n"
+	return storage.WriteFile(liveCommitMsgPath, []byte(normalized), 0600)
 }
 
 // clearCommitMessageFile removes any pending commit-message override file.
@@ -2608,7 +2810,6 @@ func handleFeedbackProxy(w http.ResponseWriter, r *http.Request, config Config, 
 	}
 }
 
-
 func buildDecisionMetadata(reviewID, account, title, reviewURL string) []string {
 	metadata := make([]string, 0, 4)
 	if strings.TrimSpace(reviewID) != "" {
@@ -2652,7 +2853,10 @@ func serveHTMLInteractive(htmlPath string, port int, ln net.Listener, initialMsg
 	if !skipBrowserOpen {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			openURL(url)
+			if err := openURL(url); err != nil {
+				fmt.Fprintf(os.Stderr, "LiveReview: failed to open browser automatically (%v)\n", err)
+				fmt.Fprintf(os.Stderr, "LiveReview: open %s manually\n", url)
+			}
 		}()
 	}
 

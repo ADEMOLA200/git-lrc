@@ -11,6 +11,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Checkout claude-lrc repository
+        uses: actions/checkout@v4
+        with:
+          repository: HexmosTech/claude-lrc
+          path: claude-lrc
+          token: ${{ secrets.CLAUDE_LRC_REPO_TOKEN || github.token }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Claude Code CLI
+        shell: powershell
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Run lrc installer
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File scripts/lrc-install.ps1
@@ -59,3 +81,7 @@ jobs:
           } else {
             Write-Host "WARNING: core.hooksPath not set (hooks install may have been skipped)"
           }
+
+      - name: Run PowerShell smoke validation
+        shell: bash
+        run: CLAUDE_LRC_DIR="$GITHUB_WORKSPACE/claude-lrc" make test-powershell-smoke

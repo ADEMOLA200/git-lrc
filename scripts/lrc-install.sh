@@ -11,10 +11,121 @@
 #   shell rc files (~/.profile, ~/.bashrc, ~/.zshenv, etc.).
 # - No shell restart required: PATH is exported in-session.
 # - Internal release: set LRC_RELEASE_CHANNEL=internal to install the team build.
+# - Hook install controls:
+#   - set LRC_INSTALL_SKIP_HOOKS=1 to skip running `lrc hooks install`
+#   - set LRC_INSTALL_HOOK_SURFACE=git|claude|all to control hook surface
+#   - default hook surface is `git` when Claude is available and plugin
+#     bootstrap is enabled; otherwise the default is `all`
+# - Optional Claude plugin bootstrap controls:
+#   - defaults to marketplace source HexmosTech/claude-lrc
+#   - defaults to marketplace name claude-lrc
+#   - set LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE to override the marketplace source
+#   - set LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME to override the marketplace name
+#   - set LRC_CLAUDE_PLUGIN_NAME to override the plugin name (default: lrc)
+#   - set LRC_CLAUDE_PLUGIN_SCOPE=user|project|local (default: user)
+#   - set LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN=0 to disable plugin bootstrap
 # On Windows Git Bash/MSYS/MINGW/CYGWIN, this script attempts to hand off to
 # PowerShell installer automatically.
 
 set -e
+
+LRC_INSTALL_SKIP_HOOKS="${LRC_INSTALL_SKIP_HOOKS:-0}"
+LRC_INSTALL_HOOK_SURFACE_EXPLICIT=0
+if [ "${LRC_INSTALL_HOOK_SURFACE+x}" = "x" ]; then
+    LRC_INSTALL_HOOK_SURFACE_EXPLICIT=1
+fi
+LRC_INSTALL_HOOK_SURFACE="${LRC_INSTALL_HOOK_SURFACE:-all}"
+LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN="${LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN:-1}"
+LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE="${LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE:-HexmosTech/claude-lrc}"
+LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME="${LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME:-claude-lrc}"
+LRC_CLAUDE_PLUGIN_NAME="${LRC_CLAUDE_PLUGIN_NAME:-lrc}"
+LRC_CLAUDE_PLUGIN_SCOPE="${LRC_CLAUDE_PLUGIN_SCOPE:-user}"
+
+is_claude_plugin_installed() {
+    local plugin_name="$1"
+
+    if ! command -v claude >/dev/null 2>&1; then
+        return 1
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        return 1
+    fi
+
+    claude plugin list --json 2>/dev/null | python3 -c '
+import json
+import sys
+
+plugin_name = sys.argv[1]
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+if not isinstance(payload, list):
+    raise SystemExit(1)
+
+for entry in payload:
+    if not isinstance(entry, dict):
+        continue
+
+    if entry.get("name") == plugin_name:
+        raise SystemExit(0)
+
+    plugin_id = entry.get("id")
+    if isinstance(plugin_id, str) and plugin_id.split("@", 1)[0] == plugin_name:
+        raise SystemExit(0)
+
+raise SystemExit(1)
+' "$plugin_name"
+}
+
+bootstrap_claude_plugin_in_background() {
+    if [ "$LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN" != "1" ]; then
+        return 0
+    fi
+
+    if [ "${LRC_BOOTSTRAP_SOURCE:-}" = "claude-plugin" ]; then
+        return 0
+    fi
+
+    if [ -z "$LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE" ] || [ -z "$LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME" ]; then
+        return 0
+    fi
+
+    if ! command -v claude >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if is_claude_plugin_installed "$LRC_CLAUDE_PLUGIN_NAME"; then
+        echo -e "${GREEN}Claude plugin '$LRC_CLAUDE_PLUGIN_NAME' already installed; skipping bootstrap${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}Bootstrapping Claude plugin '$LRC_CLAUDE_PLUGIN_NAME' in the background...${NC}"
+    (
+        export LRC_BOOTSTRAP_SOURCE=git-lrc
+        claude plugin marketplace add "$LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE" --scope "$LRC_CLAUDE_PLUGIN_SCOPE" >/dev/null 2>&1 || true
+        claude plugin install "$LRC_CLAUDE_PLUGIN_NAME@$LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME" --scope "$LRC_CLAUDE_PLUGIN_SCOPE" >/dev/null 2>&1 || true
+    ) >/dev/null 2>&1 &
+}
+
+resolve_default_hook_surface() {
+    if [ "$LRC_INSTALL_HOOK_SURFACE_EXPLICIT" = "1" ]; then
+        printf '%s\n' "$LRC_INSTALL_HOOK_SURFACE"
+        return 0
+    fi
+
+    if [ "$LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN" = "1" ] \
+        && [ "${LRC_BOOTSTRAP_SOURCE:-}" != "claude-plugin" ] \
+        && command -v claude >/dev/null 2>&1; then
+        printf 'git\n'
+        return 0
+    fi
+
+    printf '%s\n' "$LRC_INSTALL_HOOK_SURFACE"
+}
 
 # Colors for output
 RED='\033[0;31m'
@@ -541,12 +652,20 @@ EOF
     fi
 fi
 
-# Install global hooks via lrc
-echo -n "Running 'lrc hooks install' to set up global hooks... "
-if "$INSTALL_PATH" hooks install >/dev/null 2>&1; then
-    echo -e "${GREEN}OK${NC}"
+# Install global hooks via lrc unless explicitly suppressed by the caller.
+if [ "$LRC_INSTALL_SKIP_HOOKS" = "1" ]; then
+    echo -e "${YELLOW}Skipping automatic hook installation because LRC_INSTALL_SKIP_HOOKS=1${NC}"
 else
-    echo -e "${YELLOW}(warning)${NC} Failed to run 'lrc hooks install'. You may need to run it manually."
+    LRC_RESOLVED_HOOK_SURFACE="$(resolve_default_hook_surface)"
+    if [ "$LRC_INSTALL_HOOK_SURFACE_EXPLICIT" != "1" ] && [ "$LRC_RESOLVED_HOOK_SURFACE" = "git" ] && [ "$LRC_INSTALL_HOOK_SURFACE" != "git" ]; then
+        echo -e "${YELLOW}Claude detected; defaulting hook surface to git so the lrc plugin owns Claude integration${NC}"
+    fi
+    echo -n "Running 'lrc hooks install --surface $LRC_RESOLVED_HOOK_SURFACE' to set up hooks... "
+    if "$INSTALL_PATH" hooks install --surface "$LRC_RESOLVED_HOOK_SURFACE" >/dev/null 2>&1; then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${YELLOW}(warning)${NC} Failed to run 'lrc hooks install --surface $LRC_RESOLVED_HOOK_SURFACE'. You may need to run it manually."
+    fi
 fi
 
 # Track CLI installation if API key and URL are available
@@ -562,6 +681,8 @@ if [ -n "$LRC_API_KEY" ] && [ -n "$LRC_API_URL" ]; then
         echo -e "${YELLOW}(skipped)${NC}"
     fi
 fi
+
+bootstrap_claude_plugin_in_background
 
 # Verify installation
 echo ""

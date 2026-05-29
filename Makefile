@@ -1,4 +1,17 @@
-.PHONY: build build-win build-all build-local build-local-test run run-fake-review dev-ui bump release release-internal release-gh clean test testall test-pkg upload-secrets download-secrets security-govulncheck security-govulncheck-json security-osv security-triage security-gitleaks security-b2-audit security-b2-cleanup-plan security-b2-cleanup-apply security-publish-release-manifest security-secret-regression security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight check-status-doc use-local-backend use-livereview-backend
+
+.PHONY: build build-win build-all build-local build-local-test run run-fake-review \
+	dev-ui bump release release-internal release-gh clean test test-go \
+	test-simulator test-hooks-worktree test-hooks-claude test-hooks-global \
+	test-install-local test-plugin-bootstrap test-plugin-hooks test-loop-prevention \
+	test-powershell-smoke test-live-smoke \
+	test-js testall test-pkg upload-secrets download-secrets \
+	security-govulncheck security-govulncheck-json security-osv security-triage \
+	security-gitleaks security-b2-audit security-b2-cleanup-plan \
+	security-b2-cleanup-apply security-publish-release-manifest \
+	security-secret-regression security-sbom security-sbom-cyclonedx \
+	security-sbom-spdx security-sbom-validate release-notes-init \
+	release-notes-check release-preflight check-status-doc copy-installers use-local-backend \
+	use-livereview-backend
 
 # Go parameters
 GOENV=env -u GOROOT
@@ -18,8 +31,16 @@ SBOM_VERSION?=$(shell awk -F'"' '/^const appVersion/{print $$2; exit}' main.go)
 SBOM_CDX=$(SBOM_DIR)/git-lrc-$(SBOM_VERSION)-cyclonedx.json
 SBOM_SPDX=$(SBOM_DIR)/git-lrc-$(SBOM_VERSION)-spdx.json
 RELEASE_NOTES_DIR=docs/releases
+RELEASE_IMAGE_DIR=$(RELEASE_NOTES_DIR)/img
+RELEASE_IMAGE_GUIDE=README.md
 RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
+RELEASE_NOTES_BRANCH=main
+HEXMOS_HOMEPAGE_DIR=/home/shrsv/bin/hexmoshomepage
+INSTALLER_COPY_TARGETS=$(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.sh \
+	$(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.ps1 \
+	$(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.sh \
+	$(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.ps1
 
 # Build lrc for the current platform
 build:
@@ -43,7 +64,7 @@ build-all:
 # Build lrc locally for the current platform and install
 build-local:
 	@echo "🔨 Building lrc CLI locally (dirty tree allowed)..."
-	@$(GOBUILD) -o /tmp/lrc .
+	@$(GOBUILD) -ldflags "-X main.version=$(SBOM_VERSION)-internal" -o /tmp/lrc .
 	@mkdir -p $(HOME)/.local/bin
 	@install -m 0755 /tmp/lrc $(HOME)/.local/bin/lrc
 	@cp $(HOME)/.local/bin/lrc $(HOME)/.local/bin/git-lrc
@@ -86,6 +107,21 @@ use-livereview-backend:
 	@sed -i 's|api_url = "http://localhost:8888"|api_url = "https://livereview.hexmos.com"|' $(HOME)/.lrc.toml
 	@echo "✅ Switched to livereview.hexmos.com"
 
+copy-installers:
+	@printf '%s\n' "This will overwrite the following installer files in $(HEXMOS_HOMEPAGE_DIR):"; \
+	printf '  %s\n' $(INSTALLER_COPY_TARGETS); \
+	printf 'Overwrite these files? [y/N]: '; \
+	read ans; \
+	if [ "$$ans" != "y" ] && [ "$$ans" != "Y" ]; then \
+		echo "Skipped installer copy."; \
+		exit 0; \
+	fi; \
+	install -m 0644 scripts/lrc-install.sh $(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.sh; \
+	install -m 0644 scripts/lrc-install.ps1 $(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.ps1; \
+	install -m 0644 scripts/lrc-install.sh $(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.sh; \
+	install -m 0644 scripts/lrc-install.ps1 $(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.ps1; \
+	echo "✅ Copied installers into $(HEXMOS_HOMEPAGE_DIR)"
+
 # Bump lrc version by editing appVersion in main.go
 # Prompts for version bump type (patch/minor/major)
 bump:
@@ -96,8 +132,33 @@ bump:
 release: check-status-doc
 	@echo "🚀 Building and releasing lrc..."
 	@python scripts/lrc_build.py -v release
-	@echo "ℹ️  Optional GitHub release publish: make release-gh"
-	@echo "   Optional explicit override: make release-gh VERSION=$$(awk -F'"' '/const appVersion/{print $$2; exit}' main.go)"
+	@version="$$(python3 $(RELEASE_GH_SCRIPT) --print-version)" || exit $$?; \
+	notes="$(RELEASE_NOTES_DIR)/$$version.md"; \
+	img_dir="$(RELEASE_IMAGE_DIR)/$$version"; \
+	if [ -f "$$notes" ] || [ -d "$$img_dir" ]; then \
+		echo "ℹ️  Release scaffold already exists:"; \
+		echo "   Notes: $$notes"; \
+		echo "   Images: $$img_dir"; \
+		echo "   Next: edit the markdown, add media, then run make release-gh VERSION=$$version"; \
+		exit 0; \
+	fi; \
+	printf "Create release markdown and image folder for %s? [y/N]: " "$$version"; \
+	read ans; \
+	if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
+		$(MAKE) release-notes-init VERSION="$$version"; \
+		echo "ℹ️  Edit $$notes"; \
+		echo "ℹ️  Drop release images, GIFs, or local video files into $$img_dir"; \
+		echo "ℹ️  Reference them in the markdown with ![alt](IMG:path/to/file.png)"; \
+		echo "ℹ️  For a manual video reminder, keep <!-- VIDEO:demo.mp4 --> in a markdown comment."; \
+		echo "ℹ️  IMG references publish from https://raw.githubusercontent.com/$(GH_REPO)/refs/heads/$(RELEASE_NOTES_BRANCH)/$(RELEASE_IMAGE_DIR)/$$version/path/to/file.png"; \
+		echo "ℹ️  Publish when ready: make release-gh VERSION=$$version"; \
+	else \
+		echo "ℹ️  Skipped release scaffold."; \
+		echo "   Create it later with: make release-notes-init VERSION=$$version"; \
+		echo "   Markdown path: $$notes"; \
+		echo "   Image directory: $$img_dir"; \
+		echo "   Publish when ready: make release-gh VERSION=$$version"; \
+	fi
 
 # Build and upload an internal release of lrc using the same storage layout.
 release-internal: check-status-doc
@@ -108,7 +169,9 @@ release-internal: check-status-doc
 # Optionally publish a GitHub release using markdown notes (no binary assets).
 # VERSION is optional and auto-inferred by scripts/release_gh.py.
 release-gh:
-	@python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) $(if $(VERSION),--version $(VERSION),)
+	@version="$$(python3 $(RELEASE_GH_SCRIPT) --print-version $(if $(VERSION),--version $(VERSION),))" || exit $$?; \
+	$(MAKE) release-preflight VERSION="$$version"; \
+	python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) --version "$$version"
 
 # Clean build artifacts
 clean:
@@ -116,12 +179,62 @@ clean:
 	@rm -rf dist/ $(BINARY_NAME)
 	@echo "✅ Clean complete"
 
-# Run tests
-test:
+# Run the full Go test baseline
+test-go:
 	$(GOTEST) -count=1 ./...
 
-# Run all tests (alias for test)
-testall: test
+# Run simulator and nearby workflow-specific regressions
+test-simulator:
+	$(GOTEST) -count=1 ./internal/simulator
+	# Keep the appcore compatibility spot-check explicit; these cases are called out in internal/simulator/README.md.
+	$(GOTEST) -count=1 ./internal/appcore -run 'TestActionAllowedInPhase|TestValidateInteractiveDecisionRequest|TestReadCommitMessageFromRequest|TestPollReviewFakeCompletes|TestPollReviewFakeCancelled'
+
+# Run deterministic Git/worktree hook regression harness
+test-hooks-worktree: build-local
+	@PATH="$(HOME)/.local/bin:$$PATH" bash tests/worktree-hooks.sh
+
+# Run deterministic Claude hook regression harness
+test-hooks-claude: build-local
+	@PATH="$(HOME)/.local/bin:$$PATH" bash tests/claude-worktree-hooks.sh
+
+# Run isolated local installer bootstrap validation against the local claude-lrc marketplace checkout.
+test-install-local:
+	@bash tests/installer-local.sh
+
+# Run isolated plugin-first bootstrap validation against the local claude-lrc marketplace checkout.
+test-plugin-bootstrap:
+	@bash tests/plugin-bootstrap.sh
+
+# Run isolated plugin-managed hook invocation validation against the local claude-lrc checkout.
+test-plugin-hooks:
+	@bash tests/plugin-hooks.sh
+
+# Run isolated loop-prevention validation for both installer-first and plugin-first entry orders.
+test-loop-prevention:
+	@bash tests/loop-prevention.sh
+
+# Run a narrow PowerShell smoke lane when PowerShell and a Windows host are available.
+test-powershell-smoke:
+	@bash tests/powershell-smoke.sh
+
+# Run opt-in live smoke tests against published installer URLs and the pushed GitHub marketplace.
+test-live-smoke:
+	@LIVE_SMOKE="$(LIVE_SMOKE)" LIVE="$(LIVE)" bash tests/live-smoke.sh
+
+# Run deterministic global hook lifecycle regression harness
+test-hooks-global: build-local-test
+	@PATH="$(HOME)/.local/bin:$$PATH" LRC_TEST_BIN="$(HOME)/.local/bin/lrc" bash tests/global-hooks.sh
+
+# Run headless-safe Node UI state tests
+test-js:
+	node --test internal/staticserve/static/components/*.test.mjs
+
+# Preserve the existing default test alias
+test: test-go
+
+# Run the current minimum-confidence deterministic lanes.
+# test-go already covers the simulator package, so keep the aggregate target non-duplicative.
+testall: test-go test-hooks-worktree test-hooks-claude test-hooks-global
 
 # Run tests for a specific package (example: make test-pkg PKG=./internal/naming)
 test-pkg:
@@ -272,7 +385,7 @@ security-sbom-validate:
 	@test -s $(SBOM_SPDX)
 	@echo "✅ SBOM validation passed"
 
-# Generate release notes file from template.
+# Generate release notes file and per-release image folder from template.
 # Usage: make release-notes-init VERSION=v1.2.3
 release-notes-init:
 	@if [ -z "$(VERSION)" ]; then \
@@ -287,14 +400,40 @@ release-notes-init:
 		echo "❌ Missing template: $(RELEASE_NOTES_TEMPLATE)"; \
 		exit 1; \
 	}
-	@mkdir -p $(RELEASE_NOTES_DIR)
+	@mkdir -p $(RELEASE_NOTES_DIR) $(RELEASE_IMAGE_DIR)
 	@target="$(RELEASE_NOTES_DIR)/$(VERSION).md"; \
+	img_dir="$(RELEASE_IMAGE_DIR)/$(VERSION)"; \
+	guide="$$img_dir/$(RELEASE_IMAGE_GUIDE)"; \
 	if [ -f "$$target" ]; then \
 		echo "❌ Release notes already exist: $$target"; \
 		exit 1; \
 	fi; \
-	sed -e "s/__VERSION__/$(VERSION)/g" -e "s/__DATE__/$(shell date -u +%Y-%m-%d)/g" "$(RELEASE_NOTES_TEMPLATE)" > "$$target"; \
-	echo "✅ Created $$target"
+	if [ -e "$$img_dir" ]; then \
+		echo "❌ Release image directory already exists: $$img_dir"; \
+		exit 1; \
+	fi; \
+	mkdir -p "$$img_dir"; \
+	printf '%s\n' \
+		'# Release media for $(VERSION)' \
+		'' \
+		'Drop screenshots, GIFs, and any local video files for this release into this directory.' \
+		'' \
+		'Use markdown references like: ![demo](IMG:demo.png)' \
+		'For a manual video follow-up, keep this inside an HTML comment in the release notes: <!-- VIDEO:demo.mp4 -->' \
+		'' \
+		'Raw URL base after publish:' \
+		'https://raw.githubusercontent.com/$(GH_REPO)/refs/heads/$(RELEASE_NOTES_BRANCH)/$(RELEASE_IMAGE_DIR)/$(VERSION)/' \
+		> "$$guide"; \
+	sed \
+		-e "s|__VERSION__|$(VERSION)|g" \
+		-e "s|__DATE__|$(shell date -u +%Y-%m-%d)|g" \
+		-e "s|__IMAGE_DIR__|$(RELEASE_IMAGE_DIR)/$(VERSION)|g" \
+		-e "s|__IMAGE_RAW_URL_BASE__|https://raw.githubusercontent.com/$(GH_REPO)/refs/heads/$(RELEASE_NOTES_BRANCH)/$(RELEASE_IMAGE_DIR)/$(VERSION)/|g" \
+		-e "s|__IMAGE_RAW_URL_EXAMPLE__|https://raw.githubusercontent.com/$(GH_REPO)/refs/heads/$(RELEASE_NOTES_BRANCH)/$(RELEASE_IMAGE_DIR)/$(VERSION)/demo.png|g" \
+		"$(RELEASE_NOTES_TEMPLATE)" > "$$target"; \
+	echo "✅ Created $$target"; \
+	echo "✅ Created $$img_dir"; \
+	echo "✅ Created $$guide"
 
 # Validate release notes file exists and required headings are present.
 # Usage: make release-notes-check VERSION=v1.2.3
@@ -313,6 +452,7 @@ release-notes-check:
 	grep -q '^## Summary' "$$target" || { echo "❌ Missing required section: ## Summary"; exit 1; }; \
 	grep -q '^## Install and Update' "$$target" || { echo "❌ Missing required section: ## Install and Update"; exit 1; }; \
 	grep -q '^## Changes' "$$target" || { echo "❌ Missing required section: ## Changes"; exit 1; }; \
+	python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) --version $(VERSION) --check-only || exit $$?; \
 	echo "✅ Release notes validated: $$target"
 
 # Run all release checks before creating/publishing a GitHub release.

@@ -4,14 +4,25 @@ __LRC_MARKER_BEGIN__
 # Manual changes within markers will be lost on hook updates
 COMMIT_MSG_FILE="$1"
 GIT_DIR="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+EDITOR_OVERRIDE_STATE="$GIT_DIR/livereview_editor_override"
 STATE_FILE="$GIT_DIR/livereview_state"
 LOCK_DIR="$GIT_DIR/livereview_state.lock"
 COMMIT_MSG_OVERRIDE="$GIT_DIR/__LRC_COMMIT_MESSAGE_FILE__"
 LRC_DIR="$GIT_DIR/lrc"
 ATTEST_DIR="$LRC_DIR/attestations"
 DISABLED_FILE="$LRC_DIR/disabled"
+DISABLED_GIT_FILE="$LRC_DIR/disabled-git"
 
-if [ -f "$DISABLED_FILE" ]; then
+restore_noop_editor_override() {
+	if [ ! -f "$EDITOR_OVERRIDE_STATE" ]; then
+		return
+	fi
+	rm -f "$EDITOR_OVERRIDE_STATE" 2>/dev/null || true
+}
+
+restore_noop_editor_override
+
+if [ -f "$DISABLED_FILE" ] || [ -f "$DISABLED_GIT_FILE" ]; then
 	exit 0
 fi
 

@@ -25,7 +25,7 @@ type Handlers struct {
 }
 
 // BuildApp constructs the full CLI app with all command wiring.
-func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.Flag, h Handlers) *cli.App {
+func BuildApp(version, buildTime, gitCommit, reviewMode string, baseFlags, debugFlags []cli.Flag, h Handlers) *cli.App {
 	return &cli.App{
 		Name:    "lrc",
 		Usage:   "LiveReview CLI - submit local diffs for AI review",
@@ -98,6 +98,10 @@ func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.
 						Usage: "Install global LiveReview hook dispatchers (uses core.hooksPath)",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
+								Name:  "surface",
+								Usage: "hook surface to install: all, git, or claude",
+							},
+							&cli.StringFlag{
 								Name:  "path",
 								Usage: "custom hooksPath (defaults to core.hooksPath or ~/.git-hooks)",
 							},
@@ -112,6 +116,10 @@ func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.
 						Name:  "uninstall",
 						Usage: "Remove LiveReview hook dispatchers and managed scripts",
 						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "surface",
+								Usage: "hook surface to uninstall: all, git, or claude",
+							},
 							&cli.BoolFlag{
 								Name:  "local",
 								Usage: "uninstall from the current repo hooks path",
@@ -124,18 +132,36 @@ func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.
 						Action: h.RunHooksUninstall,
 					},
 					{
-						Name:   "enable",
-						Usage:  "Enable LiveReview hooks for the current repository",
+						Name:  "enable",
+						Usage: "Enable LiveReview hooks for the current repository",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "surface",
+								Usage: "hook surface to target: all, git, or claude",
+							},
+						},
 						Action: h.RunHooksEnable,
 					},
 					{
-						Name:   "disable",
-						Usage:  "Disable LiveReview hooks for the current repository",
+						Name:  "disable",
+						Usage: "Disable LiveReview hooks for the current repository",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "surface",
+								Usage: "hook surface to target: all, git, or claude",
+							},
+						},
 						Action: h.RunHooksDisable,
 					},
 					{
-						Name:   "status",
-						Usage:  "Show LiveReview hook status for the current repository",
+						Name:  "status",
+						Usage: "Show LiveReview hook status for the current repository",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "surface",
+								Usage: "hook surface to target: all, git, or claude",
+							},
+						},
 						Action: h.RunHooksStatus,
 					},
 				},
@@ -159,6 +185,7 @@ func BuildApp(version, buildTime, gitCommit string, baseFlags, debugFlags []cli.
 					fmt.Printf("lrc version %s\n", version)
 					fmt.Printf("  Build time: %s\n", buildTime)
 					fmt.Printf("  Git commit: %s\n", gitCommit)
+					fmt.Printf("  Review mode: %s\n", reviewMode)
 					return nil
 				},
 			},
