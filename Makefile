@@ -1,13 +1,16 @@
+
 .PHONY: build build-win build-all build-local build-local-test run run-fake-review \
 	dev-ui bump release release-internal release-gh clean test test-go \
 	test-simulator test-hooks-worktree test-hooks-claude test-hooks-global \
+	test-install-local test-plugin-bootstrap test-plugin-hooks test-loop-prevention \
+	test-powershell-smoke test-live-smoke \
 	test-js testall test-pkg upload-secrets download-secrets \
 	security-govulncheck security-govulncheck-json security-osv security-triage \
 	security-gitleaks security-b2-audit security-b2-cleanup-plan \
 	security-b2-cleanup-apply security-publish-release-manifest \
 	security-secret-regression security-sbom security-sbom-cyclonedx \
 	security-sbom-spdx security-sbom-validate release-notes-init \
-	release-notes-check release-preflight check-status-doc use-local-backend \
+	release-notes-check release-preflight check-status-doc copy-installers use-local-backend \
 	use-livereview-backend
 
 # Go parameters
@@ -33,6 +36,11 @@ RELEASE_IMAGE_GUIDE=README.md
 RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
 RELEASE_NOTES_BRANCH=main
+HEXMOS_HOMEPAGE_DIR=/home/shrsv/bin/hexmoshomepage
+INSTALLER_COPY_TARGETS=$(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.sh \
+	$(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.ps1 \
+	$(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.sh \
+	$(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.ps1
 
 # Build lrc for the current platform
 build:
@@ -98,6 +106,21 @@ use-local-backend:
 use-livereview-backend:
 	@sed -i 's|api_url = "http://localhost:8888"|api_url = "https://livereview.hexmos.com"|' $(HOME)/.lrc.toml
 	@echo "✅ Switched to livereview.hexmos.com"
+
+copy-installers:
+	@printf '%s\n' "This will overwrite the following installer files in $(HEXMOS_HOMEPAGE_DIR):"; \
+	printf '  %s\n' $(INSTALLER_COPY_TARGETS); \
+	printf 'Overwrite these files? [y/N]: '; \
+	read ans; \
+	if [ "$$ans" != "y" ] && [ "$$ans" != "Y" ]; then \
+		echo "Skipped installer copy."; \
+		exit 0; \
+	fi; \
+	install -m 0644 scripts/lrc-install.sh $(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.sh; \
+	install -m 0644 scripts/lrc-install.ps1 $(HEXMOS_HOMEPAGE_DIR)/public/lrc-install.ps1; \
+	install -m 0644 scripts/lrc-install.sh $(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.sh; \
+	install -m 0644 scripts/lrc-install.ps1 $(HEXMOS_HOMEPAGE_DIR)/out/lrc-install.ps1; \
+	echo "✅ Copied installers into $(HEXMOS_HOMEPAGE_DIR)"
 
 # Bump lrc version by editing appVersion in main.go
 # Prompts for version bump type (patch/minor/major)
@@ -173,6 +196,30 @@ test-hooks-worktree: build-local
 # Run deterministic Claude hook regression harness
 test-hooks-claude: build-local
 	@PATH="$(HOME)/.local/bin:$$PATH" bash tests/claude-worktree-hooks.sh
+
+# Run isolated local installer bootstrap validation against the local claude-lrc marketplace checkout.
+test-install-local:
+	@bash tests/installer-local.sh
+
+# Run isolated plugin-first bootstrap validation against the local claude-lrc marketplace checkout.
+test-plugin-bootstrap:
+	@bash tests/plugin-bootstrap.sh
+
+# Run isolated plugin-managed hook invocation validation against the local claude-lrc checkout.
+test-plugin-hooks:
+	@bash tests/plugin-hooks.sh
+
+# Run isolated loop-prevention validation for both installer-first and plugin-first entry orders.
+test-loop-prevention:
+	@bash tests/loop-prevention.sh
+
+# Run a narrow PowerShell smoke lane when PowerShell and a Windows host are available.
+test-powershell-smoke:
+	@bash tests/powershell-smoke.sh
+
+# Run opt-in live smoke tests against published installer URLs and the pushed GitHub marketplace.
+test-live-smoke:
+	@LIVE_SMOKE="$(LIVE_SMOKE)" LIVE="$(LIVE)" bash tests/live-smoke.sh
 
 # Run deterministic global hook lifecycle regression harness
 test-hooks-global: build-local-test

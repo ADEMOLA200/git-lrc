@@ -65,3 +65,83 @@ jobs:
           node-version: 24
       - name: Run deterministic UI state tests
         run: make test-js
+
+  claude-installer-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: HexmosTech/claude-lrc
+          path: claude-lrc
+      - uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run local installer bootstrap validation
+        run: CLAUDE_LRC_DIR="$GITHUB_WORKSPACE/claude-lrc" make test-install-local
+
+  claude-plugin-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: HexmosTech/claude-lrc
+          path: claude-lrc
+      - uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run plugin-first bootstrap validation
+        run: CLAUDE_LRC_DIR="$GITHUB_WORKSPACE/claude-lrc" make test-plugin-bootstrap
+
+  claude-plugin-hooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: HexmosTech/claude-lrc
+          path: claude-lrc
+      - uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run plugin hook validation
+        run: CLAUDE_LRC_DIR="$GITHUB_WORKSPACE/claude-lrc" make test-plugin-hooks
+
+  claude-loop-prevention:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: HexmosTech/claude-lrc
+          path: claude-lrc
+      - uses: actions/setup-go@v5
+        with:
+          cache: true
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run loop-prevention validation
+        run: CLAUDE_LRC_DIR="$GITHUB_WORKSPACE/claude-lrc" make test-loop-prevention

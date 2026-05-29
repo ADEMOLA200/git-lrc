@@ -10,12 +10,151 @@
 # - PATH persistence: user PATH is updated to include %LOCALAPPDATA%\Programs\lrc; current session PATH is also prepended so it works right away.
 # - Logging: migration cleanup logs to %TEMP%\lrc-cleanup.log when elevation is used.
 # - Internal release: set LRC_RELEASE_CHANNEL=internal to install the team build.
+# - Hook install controls:
+#   - set LRC_INSTALL_SKIP_HOOKS=1 to skip running `lrc hooks install`
+#   - set LRC_INSTALL_HOOK_SURFACE=git|claude|all to control hook surface
+#   - default hook surface is `git` when Claude is available and plugin
+#     bootstrap is enabled; otherwise the default is `all`
+# - Optional Claude plugin bootstrap controls:
+#   - defaults to marketplace source HexmosTech/claude-lrc
+#   - defaults to marketplace name claude-lrc
+#   - set LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE to override the marketplace source
+#   - set LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME to override the marketplace name
+#   - set LRC_CLAUDE_PLUGIN_NAME to override the plugin name (default: lrc)
+#   - set LRC_CLAUDE_PLUGIN_SCOPE=user|project|local (default: user)
+#   - set LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN=0 to disable plugin bootstrap
 
 $ErrorActionPreference = "Stop"
+
+$hookSurfaceSetting = [Environment]::GetEnvironmentVariable("LRC_INSTALL_HOOK_SURFACE")
+$LRC_INSTALL_SKIP_HOOKS = if ([string]::IsNullOrWhiteSpace($env:LRC_INSTALL_SKIP_HOOKS)) { "0" } else { $env:LRC_INSTALL_SKIP_HOOKS }
+$LRC_INSTALL_HOOK_SURFACE_EXPLICIT = $null -ne $hookSurfaceSetting
+$LRC_INSTALL_HOOK_SURFACE = if ([string]::IsNullOrWhiteSpace($hookSurfaceSetting)) { "all" } else { $hookSurfaceSetting }
+$LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN = if ([string]::IsNullOrWhiteSpace($env:LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN)) { "1" } else { $env:LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN }
+$LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE = if ([string]::IsNullOrWhiteSpace($env:LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE)) { "HexmosTech/claude-lrc" } else { $env:LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE }
+$LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME = if ([string]::IsNullOrWhiteSpace($env:LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME)) { "claude-lrc" } else { $env:LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME }
+$LRC_CLAUDE_PLUGIN_NAME = if ([string]::IsNullOrWhiteSpace($env:LRC_CLAUDE_PLUGIN_NAME)) { "lrc" } else { $env:LRC_CLAUDE_PLUGIN_NAME }
+$LRC_CLAUDE_PLUGIN_SCOPE = if ([string]::IsNullOrWhiteSpace($env:LRC_CLAUDE_PLUGIN_SCOPE)) { "user" } else { $env:LRC_CLAUDE_PLUGIN_SCOPE }
 
 # Plain ASCII status markers (Unicode chars show as ? in default Windows console)
 $OK = "[OK]"
 $FAIL = "[FAIL]"
+
+function Test-ClaudePluginInstalled {
+    param([string]$PluginName)
+
+    $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
+    if (-not $claudeCmd) {
+        return $false
+    }
+
+    try {
+        $rawPayload = & $claudeCmd.Source plugin list --json 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+
+        $payloadText = ($rawPayload | Out-String).Trim()
+        if ([string]::IsNullOrWhiteSpace($payloadText)) {
+            return $false
+        }
+
+        $payload = $payloadText | ConvertFrom-Json
+    } catch {
+        return $false
+    }
+
+    foreach ($entry in @($payload)) {
+        if ($null -eq $entry) {
+            continue
+        }
+
+        if ($entry.name -eq $PluginName) {
+            return $true
+        }
+
+        $pluginId = [string]$entry.id
+        if (-not [string]::IsNullOrWhiteSpace($pluginId)) {
+            $pluginIdName = ($pluginId -split '@', 2)[0]
+            if ($pluginIdName -eq $PluginName) {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Resolve-DefaultHookSurface {
+    if ($LRC_INSTALL_HOOK_SURFACE_EXPLICIT) {
+        return $LRC_INSTALL_HOOK_SURFACE
+    }
+
+    if ($LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN -eq "1" -and $env:LRC_BOOTSTRAP_SOURCE -ne "claude-plugin" -and (Get-Command claude -ErrorAction SilentlyContinue)) {
+        return "git"
+    }
+
+    return $LRC_INSTALL_HOOK_SURFACE
+}
+
+function Start-ClaudePluginBootstrap {
+    if ($LRC_INSTALL_BOOTSTRAP_CLAUDE_PLUGIN -ne "1") {
+        return
+    }
+
+    if ($env:LRC_BOOTSTRAP_SOURCE -eq "claude-plugin") {
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE) -or [string]::IsNullOrWhiteSpace($LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME)) {
+        return
+    }
+
+    $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
+    if (-not $claudeCmd) {
+        return
+    }
+
+    if (Test-ClaudePluginInstalled -PluginName $LRC_CLAUDE_PLUGIN_NAME) {
+        Write-Host "$OK Claude plugin '$LRC_CLAUDE_PLUGIN_NAME' already installed; skipping bootstrap" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Bootstrapping Claude plugin '$LRC_CLAUDE_PLUGIN_NAME' in the background..." -ForegroundColor Yellow
+
+    $escapedSource = $LRC_CLAUDE_PLUGIN_MARKETPLACE_SOURCE -replace "'", "''"
+    $escapedMarketplace = $LRC_CLAUDE_PLUGIN_MARKETPLACE_NAME -replace "'", "''"
+    $escapedPluginName = $LRC_CLAUDE_PLUGIN_NAME -replace "'", "''"
+    $escapedScope = $LRC_CLAUDE_PLUGIN_SCOPE -replace "'", "''"
+    $bootstrapCommand = @"
+`$env:LRC_BOOTSTRAP_SOURCE = 'git-lrc'
+& claude plugin marketplace add '$escapedSource' --scope '$escapedScope' *> `$null
+& claude plugin install '$escapedPluginName@$escapedMarketplace' --scope '$escapedScope' *> `$null
+"@
+
+    $launcher = $PSHOME
+    if (-not [string]::IsNullOrWhiteSpace($launcher)) {
+        $launcher = Join-Path $PSHOME "powershell.exe"
+        if (-not (Test-Path $launcher)) {
+            $launcher = $null
+        }
+    }
+    if (-not $launcher) {
+        $launcher = $PSCommandPath
+    }
+    if (-not $launcher) {
+        $launcher = (Get-Process -Id $PID).Path
+    }
+
+    try {
+        Start-Process -FilePath $launcher -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $bootstrapCommand) -WindowStyle Hidden | Out-Null
+    } catch {
+        try {
+            Start-Process -FilePath $launcher -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $bootstrapCommand) | Out-Null
+        } catch {
+        }
+    }
+}
 
 function Print-ElevationHelp {
     Write-Host ""
@@ -507,51 +646,60 @@ if (-not $env:HOME -and $env:USERPROFILE) {
     $env:HOME = $env:USERPROFILE
 }
 
-# Install global hooks via lrc
-Write-Host -NoNewline "Running 'lrc hooks install' to set up global hooks... "
-$hookInstallMaxAttempts = 3
-$hookInstallDelayMs = 500
-$hookInstallSuccess = $false
-$hookInstallOutput = $null
-$hookInstallExitCode = $null
-
-for ($attempt = 1; $attempt -le $hookInstallMaxAttempts; $attempt++) {
-    $prevErrorActionPreference = $ErrorActionPreference
-    try {
-        # Native tools can emit benign stderr logs; use exit code for success/failure.
-        $ErrorActionPreference = "Continue"
-        $hookInstallOutput = & $INSTALL_PATH hooks install 2>&1
-        $hookInstallExitCode = $LASTEXITCODE
-    } catch {
-        $hookInstallOutput = $_.Exception.Message
-        $hookInstallExitCode = $null
-    } finally {
-        $ErrorActionPreference = $prevErrorActionPreference
-    }
-
-    if ($hookInstallExitCode -eq 0) {
-        $hookInstallSuccess = $true
-        break
-    }
-
-    if ($attempt -lt $hookInstallMaxAttempts) {
-        Start-Sleep -Milliseconds $hookInstallDelayMs
-    }
-}
-
-if ($hookInstallSuccess) {
-    Write-Host "$OK" -ForegroundColor Green
+# Install global hooks via lrc unless explicitly suppressed by the caller.
+if ($LRC_INSTALL_SKIP_HOOKS -eq "1") {
+    Write-Host "Skipping automatic hook installation because LRC_INSTALL_SKIP_HOOKS=1" -ForegroundColor Yellow
 } else {
-    Write-Host "(warning)" -ForegroundColor Yellow
-    Write-Host "Warning: Failed to run 'lrc hooks install' after $hookInstallMaxAttempts attempts." -ForegroundColor Yellow
-    if ($hookInstallExitCode -ne $null) {
-        Write-Host "Exit code: $hookInstallExitCode" -ForegroundColor Yellow
+    $resolvedHookSurface = Resolve-DefaultHookSurface
+    if (-not $LRC_INSTALL_HOOK_SURFACE_EXPLICIT -and $resolvedHookSurface -eq "git" -and $LRC_INSTALL_HOOK_SURFACE -ne "git") {
+        Write-Host "Claude detected; defaulting hook surface to git so the lrc plugin owns Claude integration" -ForegroundColor Yellow
     }
-    if ($hookInstallOutput) {
-        Write-Host "Last command output:" -ForegroundColor Yellow
-        @($hookInstallOutput) | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+
+    Write-Host -NoNewline "Running 'lrc hooks install --surface $resolvedHookSurface' to set up hooks... "
+    $hookInstallMaxAttempts = 3
+    $hookInstallDelayMs = 500
+    $hookInstallSuccess = $false
+    $hookInstallOutput = $null
+    $hookInstallExitCode = $null
+
+    for ($attempt = 1; $attempt -le $hookInstallMaxAttempts; $attempt++) {
+        $prevErrorActionPreference = $ErrorActionPreference
+        try {
+            # Native tools can emit benign stderr logs; use exit code for success/failure.
+            $ErrorActionPreference = "Continue"
+            $hookInstallOutput = & $INSTALL_PATH hooks install --surface $resolvedHookSurface 2>&1
+            $hookInstallExitCode = $LASTEXITCODE
+        } catch {
+            $hookInstallOutput = $_.Exception.Message
+            $hookInstallExitCode = $null
+        } finally {
+            $ErrorActionPreference = $prevErrorActionPreference
+        }
+
+        if ($hookInstallExitCode -eq 0) {
+            $hookInstallSuccess = $true
+            break
+        }
+
+        if ($attempt -lt $hookInstallMaxAttempts) {
+            Start-Sleep -Milliseconds $hookInstallDelayMs
+        }
     }
-    Write-Host "You may need to run it manually: lrc hooks install" -ForegroundColor Yellow
+
+    if ($hookInstallSuccess) {
+        Write-Host "$OK" -ForegroundColor Green
+    } else {
+        Write-Host "(warning)" -ForegroundColor Yellow
+        Write-Host "Warning: Failed to run 'lrc hooks install --surface $resolvedHookSurface' after $hookInstallMaxAttempts attempts." -ForegroundColor Yellow
+        if ($hookInstallExitCode -ne $null) {
+            Write-Host "Exit code: $hookInstallExitCode" -ForegroundColor Yellow
+        }
+        if ($hookInstallOutput) {
+            Write-Host "Last command output:" -ForegroundColor Yellow
+            @($hookInstallOutput) | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+        }
+        Write-Host "You may need to run it manually: lrc hooks install --surface $resolvedHookSurface" -ForegroundColor Yellow
+    }
 }
 
 # Track CLI installation if API key and URL are available
@@ -569,6 +717,8 @@ if ($env:LRC_API_KEY -and $env:LRC_API_URL) {
         Write-Host "(skipped)" -ForegroundColor Yellow
     }
 }
+
+Start-ClaudePluginBootstrap
 
 # Verify installation
 Write-Host ""
