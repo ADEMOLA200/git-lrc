@@ -80,6 +80,7 @@ func main() {
 		RunInternalClaudeSetupWorker:    appcore.RunInternalClaudeSetupWorker,
 		RunInternalClaudeSetupSubmitKey: appcore.RunInternalClaudeSetupSubmitKey,
 		RunInternalClaudeSetupStatus:    appcore.RunInternalClaudeSetupStatus,
+		RunRemoveAttestation:            appcore.RunRemoveAttestation,
 	})
 
 	if err := app.Run(os.Args); err != nil {

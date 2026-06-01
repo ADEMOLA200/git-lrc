@@ -29,6 +29,7 @@ type Handlers struct {
 	RunInternalClaudeSetupWorker  cli.ActionFunc
 	RunInternalClaudeSetupSubmitKey cli.ActionFunc
 	RunInternalClaudeSetupStatus  cli.ActionFunc
+	RunRemoveAttestation          cli.ActionFunc
 }
 
 // BuildApp constructs the full CLI app with all command wiring.
@@ -286,6 +287,11 @@ func BuildApp(version, buildTime, gitCommit, reviewMode string, baseFlags, debug
 				Name:   "ui",
 				Usage:  "Open local web UI to manage your git-lrc",
 				Action: h.RunUI,
+			},
+			{
+				Name:   "remove-attestation",
+				Usage:  "Remove the attestation for the current staged tree",
+				Action: h.RunRemoveAttestation,
 			},
 			{
 				Name:   "internal",

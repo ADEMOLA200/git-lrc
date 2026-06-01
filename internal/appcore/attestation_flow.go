@@ -207,6 +207,23 @@ func writeAttestationFullForCurrentTree(payload attestationPayload) (string, err
 	return target, nil
 }
 
+// RunRemoveAttestation removes the attestation for the current staged tree, if present.
+func RunRemoveAttestation(c *cli.Context) error {
+	action, err := existingAttestationAction()
+	if err != nil {
+		return fmt.Errorf("could not read attestation: %w", err)
+	}
+	if action == "" {
+		fmt.Println("LiveReview: no attestation found for current tree")
+		return nil
+	}
+	if err := deleteAttestationForCurrentTree(); err != nil {
+		return err
+	}
+	fmt.Printf("LiveReview: attestation removed (was: %s)\n", action)
+	return nil
+}
+
 func deleteAttestationForCurrentTree() error {
 	treeHash, err := reviewapi.CurrentTreeHash()
 	if err != nil {
