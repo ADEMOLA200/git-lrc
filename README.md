@@ -89,6 +89,10 @@ curl -fsSL https://git.new/lrc-install | bash
 
 Binary installed. Hooks set up globally. Done.
 
+### Also Included: Claude Code Plugin
+
+🤝 We also bundle [claude-lrc](https://github.com/HexmosTech/claude-lrc), the Claude Code companion. Use **`git-lrc`** when you want editor-independent, commit-time enforcement across repos and tools. Use **`claude-lrc`** when you want natural-language and slash-command control directly inside Claude Code.
+
 ### Setup
 
 ```bash
