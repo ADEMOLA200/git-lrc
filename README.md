@@ -252,6 +252,8 @@ To configure:
 - Enter your API key.
 - Select the Claude model to use for reviews.
 
+> Setup guide: [Using ClaudeAPI with git-lrc](https://claudeapi.com/en/blog/tools/git-lrc-claudeapi-setup-guide/?utm_source=git-lrc)
+
 ## Security You Can Trust
 
 - Security is treated as a core product requirement in git-lrc.
