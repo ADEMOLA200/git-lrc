@@ -6,6 +6,18 @@ export async function createComment() {
     const { html, useEffect, useState } = await waitForPreact();
     const FeedbackPopup = await getFeedbackPopup();
 
+    const renderFact = (label, value, extraClass = '') => {
+        if (!value) {
+            return null;
+        }
+        return html`
+            <div class="comment-fact ${extraClass}">
+                <span class="comment-fact-label">${label}</span>
+                <span class="comment-fact-value">${value}</span>
+            </div>
+        `;
+    };
+
     return function Comment({ comment, filePath, codeExcerpt, commentId, visibilityKey, isHidden, onToggleVisibility, onFirstRender, renderTimingLabel, vote, onVote }) {
         const [copied, setCopied] = useState(false);
 
@@ -86,7 +98,7 @@ export async function createComment() {
                                     data-line="${comment.Line}"
                                     data-comment="${comment.Content}"
                                 >
-                                    <div class="comment-actions" style="display: flex; gap: 6px; position: absolute; right: 12px; top: 12px; align-items: center;">
+                                    <div class="comment-actions">
                                         <${FeedbackPopup}
                                             type="up"
                                             vote=${vote}
@@ -110,30 +122,45 @@ export async function createComment() {
                                             sourceType="comment"
                                         />
                                         <button
-                                            class="comment-visibility-btn"
+                                            class="comment-visibility-btn comment-action-icon-btn"
                                             title="Hide this comment from the AI Agent"
                                             onClick=${handleToggleVisibility}
-                                            style="position: static; opacity: 1;"
                                         >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-5 0-9.27-3.11-11-7.5a11.8 11.8 0 012.89-4.11M9.88 9.88a3 3 0 104.24 4.24"/><path d="M1 1l22 22"/></svg>
-                                            Hide
                                         </button>
                                         <button 
-                                            class="comment-copy-btn ${copied ? 'copied' : ''}"
+                                            class="comment-copy-btn comment-action-icon-btn ${copied ? 'copied' : ''}"
                                             title="Copy issue details"
                                             onClick=${handleCopy}
-                                            style="position: static;"
                                         >
-                                            ${copied ? 'Copied!' : 'Copy'}
+                                            ${copied
+                                                ? html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+                                                : html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round"/></svg>`}
                                         </button>
                                     </div>
                                     <div class="comment-header">
-                                        <span class="comment-badge ${badgeClass}">${comment.Severity}</span>
-                                        ${comment.HasCategory && html`
-                                            <span class="comment-category">${comment.Category}</span>
-                                        `}
-                                        ${renderTimingLabel && html`
-                                            <span class="comment-arrival">${renderTimingLabel}</span>
+                                        <div class="comment-header-main">
+                                            <span class="comment-badge ${badgeClass}">${comment.Severity}</span>
+                                            <span class="comment-location">${filePath}${lineLabel}</span>
+                                            ${renderTimingLabel && html`
+                                                <span class="comment-arrival">${renderTimingLabel}</span>
+                                            `}
+                                        </div>
+                                    </div>
+                                    <div class="comment-facts-row">
+                                        ${renderFact('Confidence', comment.Confidence)}
+                                        ${renderFact('Type', comment.Type)}
+                                        ${(comment.Category || comment.Subcategory) && html`
+                                            <div class="comment-fact comment-fact-classification">
+                                                <span class="comment-fact-label">Classification</span>
+                                                <span class="comment-fact-value">
+                                                    <span>${comment.Category || 'Uncategorized'}</span>
+                                                    ${comment.Subcategory && html`
+                                                        <span class="comment-fact-separator">/</span>
+                                                        <span class="comment-fact-subvalue">${comment.Subcategory}</span>
+                                                    `}
+                                                </span>
+                                            </div>
                                         `}
                                     </div>
                                     <div class="comment-body">${comment.Content}</div>

@@ -128,7 +128,10 @@ func buildFakeCompletedResultForFiles(baseFiles []reviewmodel.DiffReviewFileResu
 type syntheticCommentSpec struct {
 	linePickIndex int // -1 = last available line, ≥0 = Nth available line
 	severity      string
+	confidence    string
+	typeName      string
 	category      string
+	subcategory   string
 	content       string
 }
 
@@ -139,7 +142,10 @@ var perFileCommentSpecs = map[string][]syntheticCommentSpec{
 		{
 			linePickIndex: 0,
 			severity:      "Critical",
+			confidence:    "High",
+			typeName:      "Best Practice",
 			category:      "Documentation",
+			subcategory:   "Missing Prerequisites",
 			content:       "README is missing required Go version and platform prerequisites — document these before shipping.",
 		},
 	},
@@ -147,13 +153,19 @@ var perFileCommentSpecs = map[string][]syntheticCommentSpec{
 		{
 			linePickIndex: 0,
 			severity:      "Error",
+			confidence:    "High",
+			typeName:      "Bug",
 			category:      "Logic",
+			subcategory:   "Parser Mismatch",
 			content:       "`alpha-updated` is inconsistent with downstream parser expectations; update the canonical test fixture.",
 		},
 		{
 			linePickIndex: -1,
 			severity:      "Error",
+			confidence:    "Medium",
+			typeName:      "Bug",
 			category:      "Logic",
+			subcategory:   "Integration Drift",
 			content:       "`delta-updated` does not match the expected integration test output — realign the test data.",
 		},
 	},
@@ -161,7 +173,10 @@ var perFileCommentSpecs = map[string][]syntheticCommentSpec{
 		{
 			linePickIndex: 0,
 			severity:      "Warning",
+			confidence:    "Medium",
+			typeName:      "Risk",
 			category:      "Configuration",
+			subcategory:   "Telemetry Leakage",
 			content:       "`enable_telemetry = true` in a generated config risks leaking test data to analytics endpoints — disable for local runs.",
 		},
 	},
@@ -169,7 +184,10 @@ var perFileCommentSpecs = map[string][]syntheticCommentSpec{
 		{
 			linePickIndex: 0,
 			severity:      "Info",
+			confidence:    "Low",
+			typeName:      "Technical Debt",
 			category:      "Style",
+			subcategory:   "Snapshot Stability",
 			content:       "Single-line file — confirm the seed suffix is stable enough for snapshot testing.",
 		},
 	},
@@ -177,7 +195,10 @@ var perFileCommentSpecs = map[string][]syntheticCommentSpec{
 		{
 			linePickIndex: 0,
 			severity:      "Info",
+			confidence:    "Low",
+			typeName:      "Optimization",
 			category:      "Style",
+			subcategory:   "String Processing",
 			content:       "`normalizeConnectorName` chains three sequential string operations; consider combining into a single `strings.Map` pass for clarity.",
 		},
 	},
@@ -217,10 +238,13 @@ func buildSyntheticCommentsByFile(files []reviewmodel.DiffReviewFileResult) map[
 				idx = len(allLines) - 1
 			}
 			comments = append(comments, reviewmodel.DiffReviewComment{
-				Line:     allLines[idx],
-				Severity: spec.severity,
-				Category: spec.category,
-				Content:  spec.content,
+				Line:        allLines[idx],
+				Severity:    spec.severity,
+				Confidence:  spec.confidence,
+				Type:        spec.typeName,
+				Category:    spec.category,
+				Subcategory: spec.subcategory,
+				Content:     spec.content,
 			})
 		}
 		if len(comments) > 0 {

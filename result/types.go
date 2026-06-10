@@ -42,8 +42,11 @@ type HTMLLineData struct {
 
 type HTMLCommentData struct {
 	Severity    string
+	Confidence  string
+	Type        string
 	BadgeClass  string
 	Category    string
+	Subcategory string
 	Content     string
 	HasCategory bool
 	Line        int
@@ -92,8 +95,11 @@ type JSONLineData struct {
 
 type JSONCommentData struct {
 	Severity    string `json:"Severity"`
+	Confidence  string `json:"Confidence"`
+	Type        string `json:"Type"`
 	BadgeClass  string `json:"BadgeClass"`
 	Category    string `json:"Category"`
+	Subcategory string `json:"Subcategory"`
 	Content     string `json:"Content"`
 	HasCategory bool   `json:"HasCategory"`
 	Line        int    `json:"Line"`

@@ -1,12 +1,13 @@
 // Sidebar component
-import { waitForPreact, filePathToId, countVisibleComments } from './utils.js';
+import { waitForPreact, filePathToId } from './utils.js';
+import { countFileVisibleIssues } from './issue_filter_state.mjs';
 
 export async function createSidebar() {
     const { html } = await waitForPreact();
     
-    return function Sidebar({ files, activeFileId, onFileClick, visibleSeverities }) {
+    return function Sidebar({ files, activeFileId, onFileClick, issueFilters, hiddenCommentKeys }) {
         const totalFiles = files.length;
-        const totalComments = files.reduce((sum, file) => sum + countVisibleComments(file, visibleSeverities), 0);
+        const totalComments = files.reduce((sum, file) => sum + countFileVisibleIssues(file, issueFilters, hiddenCommentKeys), 0);
         
         return html`
             <div class="sidebar">
@@ -31,7 +32,7 @@ export async function createSidebar() {
                                     ${file.FilePath}
                                 </span>
                                 ${(() => {
-                                    const badgeCount = countVisibleComments(file, visibleSeverities);
+                                    const badgeCount = countFileVisibleIssues(file, issueFilters, hiddenCommentKeys);
                                     return badgeCount > 0 && html`
                                         <span class="sidebar-file-badge">${badgeCount}</span>
                                     `;

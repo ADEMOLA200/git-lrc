@@ -2,6 +2,7 @@
 // Fetches data from /api/review and updates reactively
 
 import { waitForPreact, filePathToId, transformEvent, getBadgeClass, formatIssueForCopy, getCommentVisibilityKey } from './components/utils.js';
+import { buildIssueCategoryGroups, buildIssueFacetOptions, countIssuesByFilters, createDefaultIssueFilters, getIssueFilterSummary, matchesIssueFilters, resetIssueFilters, toggleIssueFilterValue } from './components/issue_filter_state.mjs';
 import { appendStreamedCommentsToFiles, buildEventsURL, extractExternalCommentsFromEvents, extractNewEvents, inferReviewStatusFromEvents } from './components/review_stream_state.mjs';
 import { getHeader } from './components/Header.js';
 import { getSidebar } from './components/Sidebar.js';
@@ -10,7 +11,7 @@ import { getStats } from './components/Stats.js';
 import { getPrecommitBar } from './components/PrecommitBar.js';
 import { getFileBlock } from './components/FileBlock.js';
 import { getEventLog } from './components/EventLog.js';
-import { getSeverityFilter } from './components/SeverityFilter.js';
+import { getIssueFilterBar } from './components/IssueFilterBar.js';
 import { getToolbar } from './components/Toolbar.js';
 import { getCommentNav } from './components/CommentNav.js';
 import { UsageBanner } from './components/UsageBanner.js';
@@ -61,8 +62,11 @@ function convertFilesToUIFormat(files) {
             }
             commentsByLine[line].push({
                 Severity: (comment.severity || comment.Severity || 'info').toUpperCase(),
+                Confidence: comment.confidence || comment.Confidence || '',
+                Type: comment.type || comment.Type || '',
                 BadgeClass: getBadgeClass(comment.severity || comment.Severity || 'info'),
                 Category: comment.category || comment.Category || '',
+                Subcategory: comment.subcategory || comment.Subcategory || '',
                 Content: comment.content || comment.Content || '',
                 HasCategory: !!(comment.category || comment.Category),
                 Line: line,
@@ -240,7 +244,7 @@ async function initApp() {
     const PrecommitBar = await getPrecommitBar();
     const FileBlock = await getFileBlock();
     const EventLog = await getEventLog();
-    const SeverityFilter = await getSeverityFilter();
+    const IssueFilterBar = await getIssueFilterBar();
     const Toolbar = await getToolbar();
     const CommentNav = await getCommentNav();
     const SummarySlideshow = await getSummarySlideshow();
@@ -256,7 +260,7 @@ async function initApp() {
         const [expandedFiles, setExpandedFiles] = useState(new Set());
         const [allExpanded, setAllExpanded] = useState(false);
         const [activeFileId, setActiveFileId] = useState(null);
-        const [visibleSeverities, setVisibleSeverities] = useState(new Set(['critical', 'error', 'warning', 'info']));
+        const [issueFilters, setIssueFilters] = useState(createDefaultIssueFilters());
         const [events, setEvents] = useState([]);
         const [newEventCount, setNewEventCount] = useState(0);
         const [isTailing, setIsTailing] = useState(false);
@@ -649,8 +653,7 @@ async function initApp() {
             const filteredFiles = (reviewData.files || reviewData.Files || []).map(file => {
                 const filePath = file.file_path || file.filePath || file.FilePath;
                 const newComments = (file.comments || file.Comments || []).filter(c => {
-                    const sev = (c.severity || c.Severity || '').toLowerCase();
-                    if (!visibleSeverities.has(sev)) return false;
+                    if (!matchesIssueFilters(c, issueFilters)) return false;
                     const key = getCommentVisibilityKey(filePath, c);
                     return !hiddenCommentKeys.has(key);
                 });
@@ -694,7 +697,7 @@ async function initApp() {
                     message: "Failed to send to agent: " + e.message 
                 });
             }
-        }, [reviewData, visibleSeverities, hiddenCommentKeys]);
+        }, [reviewData, issueFilters, hiddenCommentKeys]);
 
         const showCopyFeedback = useCallback((status, message) => {
             setCopyFeedback({ status, message });
@@ -858,17 +861,25 @@ async function initApp() {
             `;
         }
         
-        // Toggle severity visibility
-        const toggleSeverity = useCallback((severity) => {
-            setVisibleSeverities(prev => {
-                const next = new Set(prev);
-                if (next.has(severity)) {
-                    next.delete(severity);
-                } else {
-                    next.add(severity);
-                }
-                return next;
-            });
+        const filterCounts = countIssuesByFilters(files, issueFilters, hiddenCommentKeys);
+        const filterOptions = buildIssueFacetOptions(files, issueFilters, hiddenCommentKeys);
+        const categoryGroups = buildIssueCategoryGroups(files, issueFilters, hiddenCommentKeys);
+        const allCategoryGroups = buildIssueCategoryGroups(files, createDefaultIssueFilters(), hiddenCommentKeys);
+        const filterSummary = getIssueFilterSummary(issueFilters);
+
+        const toggleIssueFilter = useCallback((field, value) => {
+            const matchingGroup = field === 'category'
+                ? allCategoryGroups.find((group) => group.value === String(value || '').trim().toLowerCase())
+                : null;
+
+            setIssueFilters((prev) => toggleIssueFilterValue(prev, field, value, {
+                allValues: field === 'category' ? allCategoryGroups.map((group) => group.value) : [],
+                childValues: matchingGroup?.subcategories?.map((subcategory) => subcategory.value) || [],
+            }));
+        }, [allCategoryGroups]);
+
+        const handleResetIssueFilters = useCallback(() => {
+            setIssueFilters(resetIssueFilters());
         }, []);
         
         // Copy all visible issues to clipboard
@@ -880,8 +891,7 @@ async function initApp() {
                     hunk.Lines.forEach(line => {
                         if (line.IsComment && line.Comments) {
                             line.Comments.forEach((comment) => {
-                                const sev = (comment.Severity || '').toLowerCase();
-                                if (!visibleSeverities.has(sev)) return;
+                                if (!matchesIssueFilters(comment, issueFilters)) return;
                                 const visibilityKey = getCommentVisibilityKey(file.FilePath, comment);
                                 if (visibilityKey && hiddenCommentKeys.has(visibilityKey)) return;
                                 lines.push(formatIssueForCopy(file.FilePath, comment));
@@ -902,7 +912,7 @@ async function initApp() {
                 console.error('Failed to copy issues:', err);
                 showCopyFeedback('error', 'Failed to copy issues');
             }
-        }, [files, visibleSeverities, hiddenCommentKeys, showCopyFeedback]);
+        }, [files, issueFilters, hiddenCommentKeys, showCopyFeedback]);
         
         // Build flat ordered list of VISIBLE comments for navigation
         const allComments = [];
@@ -913,8 +923,7 @@ async function initApp() {
                 hunk.Lines.forEach(line => {
                     if (line.IsComment && line.Comments) {
                         line.Comments.forEach((comment, commentIdx) => {
-                            const sev = (comment.Severity || '').toLowerCase();
-                            if (!visibleSeverities.has(sev)) return;
+                            if (!matchesIssueFilters(comment, issueFilters)) return;
                             const visibilityKey = getCommentVisibilityKey(file.FilePath, comment);
                             if (visibilityKey && hiddenCommentKeys.has(visibilityKey)) return;
                             const cid = `comment-${fileId}-${comment.Line}-${commentIdx}`;
@@ -941,8 +950,7 @@ async function initApp() {
                 hunk.Lines.forEach(line => {
                     if (line.IsComment && line.Comments) {
                         line.Comments.forEach((comment) => {
-                            const sev = (comment.Severity || '').toLowerCase();
-                            if (!visibleSeverities.has(sev)) return;
+                            if (!matchesIssueFilters(comment, issueFilters)) return;
                             const visibilityKey = getCommentVisibilityKey(file.FilePath, comment);
                             if (visibilityKey && hiddenCommentKeys.has(visibilityKey)) return;
                             totalVisibleComments++;
@@ -981,7 +989,8 @@ async function initApp() {
                 files=${files}
                 activeFileId=${activeFileId}
                 onFileClick=${handleFileClick}
-                visibleSeverities=${visibleSeverities}
+                issueFilters=${issueFilters}
+                hiddenCommentKeys=${hiddenCommentKeys}
             />
             <div class="main-content">
                 <div class="container">
@@ -1052,10 +1061,15 @@ async function initApp() {
                     />
                     
                     ${activeTab === 'files' && html`
-                        <${SeverityFilter}
+                        <${IssueFilterBar}
                             files=${files}
-                            visibleSeverities=${visibleSeverities}
-                            onToggleSeverity=${toggleSeverity}
+                            issueFilters=${issueFilters}
+                            filterOptions=${filterOptions}
+                            categoryGroups=${categoryGroups}
+                            filterCounts=${filterCounts}
+                            filterSummary=${filterSummary}
+                            onToggleFilter=${toggleIssueFilter}
+                            onResetFilters=${handleResetIssueFilters}
                             onCopyVisibleIssues=${handleCopyVisibleIssues}
                             hiddenCommentKeys=${hiddenCommentKeys}
                             copyFeedbackStatus=${copyFeedback.status}
@@ -1076,7 +1090,7 @@ async function initApp() {
                                     file=${file}
                                     expanded=${expandedFiles.has(file.ID)}
                                     onToggle=${toggleFile}
-                                    visibleSeverities=${visibleSeverities}
+                                    issueFilters=${issueFilters}
                                     hiddenCommentKeys=${hiddenCommentKeys}
                                     onToggleCommentVisibility=${toggleCommentVisibility}
                                     reviewStartMs=${reviewStartMsRef.current}
@@ -1167,7 +1181,7 @@ async function initApp() {
                     onClose=${() => setSlideShowOpen(false)}
                 />
             `}
-        `;
+            `;
     }
     
     // Render the app

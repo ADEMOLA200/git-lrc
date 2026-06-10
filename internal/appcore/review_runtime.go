@@ -1750,6 +1750,18 @@ func renderPretty(result *reviewmodel.DiffReviewResponse) error {
 			if comment.Category != "" {
 				fmt.Printf(" (%s)", comment.Category)
 			}
+			if comment.Confidence != "" || comment.Type != "" || comment.Subcategory != "" {
+				fmt.Print("\n    Tags:")
+				if comment.Confidence != "" {
+					fmt.Printf(" confidence=%s", comment.Confidence)
+				}
+				if comment.Type != "" {
+					fmt.Printf(" type=%s", comment.Type)
+				}
+				if comment.Subcategory != "" {
+					fmt.Printf(" subcategory=%s", comment.Subcategory)
+				}
+			}
 			fmt.Println()
 
 			// Indent comment content
@@ -2097,6 +2109,18 @@ func renderHunkWithComments(buf *bytes.Buffer, hunk reviewmodel.DiffReviewHunk, 
 					buf.WriteString(fmt.Sprintf("[%s] Line %d", severity, comment.Line))
 					if comment.Category != "" {
 						buf.WriteString(fmt.Sprintf(" (%s)", comment.Category))
+					}
+					if comment.Confidence != "" || comment.Type != "" || comment.Subcategory != "" {
+						buf.WriteString("\n    Tags:")
+						if comment.Confidence != "" {
+							buf.WriteString(fmt.Sprintf(" confidence=%s", comment.Confidence))
+						}
+						if comment.Type != "" {
+							buf.WriteString(fmt.Sprintf(" type=%s", comment.Type))
+						}
+						if comment.Subcategory != "" {
+							buf.WriteString(fmt.Sprintf(" subcategory=%s", comment.Subcategory))
+						}
 					}
 					buf.WriteString("\n" + strings.Repeat("-", 80) + "\n")
 
