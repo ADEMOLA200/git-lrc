@@ -2,7 +2,7 @@
 // Fetches data from /api/review and updates reactively
 
 import { waitForPreact, filePathToId, transformEvent, getBadgeClass, formatIssueForCopy, getCommentVisibilityKey } from './components/utils.js';
-import { buildIssueCategoryGroups, buildIssueFacetOptions, countIssuesByFilters, createDefaultIssueFilters, getIssueFilterSummary, matchesIssueFilters, resetIssueFilters, toggleIssueFilterValue } from './components/issue_filter_state.mjs';
+import { buildIssueCategoryGroups, buildIssueFacetOptions, buildIssueFilterUniverse, countIssuesByFilters, createDefaultIssueFilters, getIssueFilterSummary, matchesIssueFilters, resetIssueFilters, toggleIssueFilterValue } from './components/issue_filter_state.mjs';
 import { appendStreamedCommentsToFiles, buildEventsURL, extractExternalCommentsFromEvents, extractNewEvents, inferReviewStatusFromEvents } from './components/review_stream_state.mjs';
 import { getHeader } from './components/Header.js';
 import { getSidebar } from './components/Sidebar.js';
@@ -857,26 +857,17 @@ async function initApp() {
         const filterOptions = buildIssueFacetOptions(files, issueFilters, hiddenCommentKeys);
         const categoryGroups = buildIssueCategoryGroups(files, issueFilters, hiddenCommentKeys);
         const allCategoryGroups = buildIssueCategoryGroups(files, createDefaultIssueFilters(), hiddenCommentKeys);
-        const filterSummary = getIssueFilterSummary(issueFilters);
+        const filterUniverse = buildIssueFilterUniverse(files, hiddenCommentKeys);
+        const filterSummary = getIssueFilterSummary(issueFilters, filterUniverse);
 
         const toggleIssueFilter = useCallback((field, value) => {
             const matchingGroup = field === 'category'
                 ? allCategoryGroups.find((group) => group.value === String(value || '').trim().toLowerCase())
                 : null;
-            const allValuesByField = {
-                severity: (filterOptions?.severities || []).map((option) => option.value),
-                confidence: (filterOptions?.confidences || []).map((option) => option.value),
-                type: (filterOptions?.types || []).map((option) => option.value),
-                category: allCategoryGroups.map((group) => group.value),
-                subcategory: allCategoryGroups.flatMap((group) => group.subcategories.map((subcategory) => subcategory.value)),
-            };
-
             setIssueFilters((prev) => toggleIssueFilterValue(prev, field, value, {
-                allValues: allValuesByField[field] || [],
                 childValues: matchingGroup?.subcategories?.map((subcategory) => subcategory.value) || [],
-                allChildValues: allValuesByField.subcategory,
             }));
-        }, [allCategoryGroups, filterOptions]);
+        }, [allCategoryGroups]);
 
         const handleResetIssueFilters = useCallback(() => {
             setIssueFilters(resetIssueFilters());

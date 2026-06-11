@@ -5,6 +5,7 @@ import {
     buildCommentVisibilityKey,
     buildIssueCategoryGroups,
     buildIssueFacetOptions,
+    buildIssueFilterUniverse,
     countFileVisibleIssues,
     countIssuesByFilters,
     createDefaultIssueFilters,
@@ -87,22 +88,24 @@ function buildFiles() {
     ];
 }
 
-test('createDefaultIssueFilters selects all severities and no secondary facets', () => {
+test('createDefaultIssueFilters starts with no disabled facet values', () => {
     const filters = createDefaultIssueFilters();
 
-    assert.deepEqual([...filters.severities], ['critical', 'error', 'warning', 'info']);
-    assert.equal(filters.confidences, null);
-    assert.equal(filters.types, null);
-    assert.equal(filters.categories, null);
-    assert.equal(filters.subcategories, null);
+    assert.deepEqual([...filters.disabled.severities], []);
+    assert.deepEqual([...filters.disabled.confidences], []);
+    assert.deepEqual([...filters.disabled.types], []);
+    assert.deepEqual([...filters.disabled.categories], []);
+    assert.deepEqual([...filters.disabled.subcategories], []);
     assert.equal(hasActiveIssueFilters(filters), false);
 });
 
-test('matchesIssueFilters applies multi-factor selection semantics', () => {
+test('matchesIssueFilters applies multi-factor enabled semantics', () => {
     const filters = normalizeIssueFilters({
-        severities: new Set(['critical', 'warning']),
-        confidences: new Set(['high']),
-        categories: new Set(['documentation']),
+        disabled: {
+            severities: new Set(['error', 'info']),
+            confidences: new Set(['medium', 'low']),
+            categories: new Set(['logic', 'style']),
+        },
     });
 
     assert.equal(matchesIssueFilters({ Severity: 'CRITICAL', Confidence: 'High', Category: 'Documentation' }, filters), true);
@@ -110,9 +113,11 @@ test('matchesIssueFilters applies multi-factor selection semantics', () => {
     assert.equal(matchesIssueFilters({ Severity: 'ERROR', Confidence: 'High', Category: 'Logic' }, filters), false);
 });
 
-test('buildIssueFacetOptions narrows subcategories by the active main-category filter', () => {
+test('buildIssueFacetOptions narrows subcategories by the enabled main-category filter', () => {
     const filters = normalizeIssueFilters({
-        categories: new Set(['documentation']),
+        disabled: {
+            categories: new Set(['logic', 'style']),
+        },
     });
 
     const options = buildIssueFacetOptions(buildFiles(), filters, new Set());
@@ -182,11 +187,13 @@ test('buildIssueCategoryGroups preserves the category to subcategory relationshi
     );
 });
 
-test('buildIssueCategoryGroups keeps category order stable when a category becomes active', () => {
+test('buildIssueCategoryGroups keeps category order stable when a category becomes the only enabled one', () => {
     const files = buildFiles();
     const baseline = buildIssueCategoryGroups(files, normalizeIssueFilters({}), new Set());
     const active = buildIssueCategoryGroups(files, normalizeIssueFilters({
-        categories: new Set(['logic']),
+        disabled: {
+            categories: new Set(['documentation', 'style']),
+        },
     }), new Set());
 
     assert.deepEqual(
@@ -230,61 +237,54 @@ test('buildIssueCategoryGroups treats all categories and subcategories as active
     );
 });
 
-test('toggleIssueFilterValue clears dependent subcategories when deselecting a main category', () => {
-    const next = toggleIssueFilterValue(normalizeIssueFilters({
-        categories: new Set(['documentation', 'logic']),
-        subcategories: new Set(['broken links', 'missing prerequisites', 'parser mismatch']),
-    }), 'category', 'documentation', {
-        childValues: ['broken links', 'missing prerequisites'],
-    });
-
-    assert.deepEqual([...next.categories].sort(), ['logic']);
-    assert.deepEqual([...next.subcategories].sort(), ['parser mismatch']);
-});
-
-test('toggleIssueFilterValue disables the clicked main category when all categories are currently selected', () => {
+test('toggleIssueFilterValue disables a main category together with its subcategories', () => {
     const next = toggleIssueFilterValue(createDefaultIssueFilters(), 'category', 'documentation', {
-        allValues: ['documentation', 'logic', 'style'],
         childValues: ['broken links', 'missing prerequisites'],
-        allChildValues: ['broken links', 'missing prerequisites', 'parser mismatch', 'string processing'],
     });
 
-    assert.deepEqual([...next.categories].sort(), ['logic', 'style']);
-    assert.deepEqual([...next.subcategories].sort(), ['parser mismatch', 'string processing']);
+    assert.deepEqual([...next.disabled.categories].sort(), ['documentation']);
+    assert.deepEqual([...next.disabled.subcategories].sort(), ['broken links', 'missing prerequisites']);
 });
 
 test('toggleIssueFilterValue re-enables a disabled main category together with its subcategories', () => {
-    const next = toggleIssueFilterValue(normalizeIssueFilters({
-        categories: new Set(['logic', 'style']),
-        subcategories: new Set(['parser mismatch', 'string processing']),
-    }), 'category', 'documentation', {
-        allValues: ['documentation', 'logic', 'style'],
+    const disabled = toggleIssueFilterValue(createDefaultIssueFilters(), 'category', 'documentation', {
         childValues: ['broken links', 'missing prerequisites'],
-        allChildValues: ['broken links', 'missing prerequisites', 'parser mismatch', 'string processing'],
+    });
+    const next = toggleIssueFilterValue(disabled, 'category', 'documentation', {
+        childValues: ['broken links', 'missing prerequisites'],
     });
 
-    assert.equal(next.categories, null);
-    assert.equal(next.subcategories, null);
+    assert.deepEqual([...next.disabled.categories], []);
+    assert.deepEqual([...next.disabled.subcategories], []);
 });
 
 test('toggleIssueFilterValue toggles an individual subcategory off and back on', () => {
-    const disabled = toggleIssueFilterValue(createDefaultIssueFilters(), 'subcategory', 'broken links', {
-        allValues: ['broken links', 'missing prerequisites', 'parser mismatch', 'string processing'],
-    });
+    const disabled = toggleIssueFilterValue(createDefaultIssueFilters(), 'subcategory', 'broken links');
 
-    assert.deepEqual([...disabled.subcategories].sort(), ['missing prerequisites', 'parser mismatch', 'string processing']);
+    assert.deepEqual([...disabled.disabled.subcategories].sort(), ['broken links']);
 
-    const reenabled = toggleIssueFilterValue(disabled, 'subcategory', 'broken links', {
-        allValues: ['broken links', 'missing prerequisites', 'parser mismatch', 'string processing'],
-    });
+    const reenabled = toggleIssueFilterValue(disabled, 'subcategory', 'broken links');
 
-    assert.equal(reenabled.subcategories, null);
+    assert.deepEqual([...reenabled.disabled.subcategories], []);
+});
+
+test('toggleIssueFilterValue can disable every confidence value without re-enabling all on the last click', () => {
+    let next = createDefaultIssueFilters();
+    next = toggleIssueFilterValue(next, 'confidence', 'low');
+    next = toggleIssueFilterValue(next, 'confidence', 'medium');
+    next = toggleIssueFilterValue(next, 'confidence', 'high');
+
+    assert.deepEqual([...next.disabled.confidences].sort(), ['high', 'low', 'medium']);
+    assert.equal(hasActiveIssueFilters(next), true);
+    assert.equal(matchesIssueFilters({ Severity: 'CRITICAL', Confidence: 'High', Category: 'Documentation' }, next), false);
 });
 
 test('countIssuesByFilters and countFileVisibleIssues exclude hidden comments from visible totals', () => {
     const files = buildFiles();
     const filters = normalizeIssueFilters({
-        categories: new Set(['documentation']),
+        disabled: {
+            categories: new Set(['logic', 'style']),
+        },
     });
     const hiddenCommentKeys = new Set([
         buildCommentVisibilityKey('README.md', {
@@ -308,7 +308,9 @@ test('countIssuesByFilters and countFileVisibleIssues exclude hidden comments fr
 test('getIssueFilterStats returns visible counts and dependent subcategory availability', () => {
     const files = buildFiles();
     const filters = normalizeIssueFilters({
-        categories: new Set(['documentation']),
+        disabled: {
+            categories: new Set(['logic', 'style']),
+        },
     });
 
     const stats = getIssueFilterStats(files, filters, new Set([buildCommentVisibilityKey('parser.go', {
@@ -328,10 +330,13 @@ test('getIssueFilterStats returns visible counts and dependent subcategory avail
 });
 
 test('issue filter summary only reports active restrictions beyond defaults', () => {
+    const universe = buildIssueFilterUniverse(buildFiles(), new Set());
     const summary = getIssueFilterSummary(normalizeIssueFilters({
-        severities: new Set(['critical', 'warning']),
-        confidences: new Set(['high']),
-    }));
+        disabled: {
+            severities: new Set(['error', 'info']),
+            confidences: new Set(['medium', 'low']),
+        },
+    }), universe);
 
     assert.deepEqual(summary, ['Severity: 2', 'Confidence: 1']);
 });
@@ -369,6 +374,6 @@ test('buildCommentVisibilityKey distinguishes comments across metadata dimension
 
 test('resetIssueFilters restores defaults', () => {
     const reset = resetIssueFilters();
-    assert.deepEqual([...reset.severities].sort(), ['critical', 'error', 'info', 'warning']);
-    assert.equal(reset.confidences, null);
+    assert.deepEqual([...reset.disabled.severities], []);
+    assert.deepEqual([...reset.disabled.confidences], []);
 });

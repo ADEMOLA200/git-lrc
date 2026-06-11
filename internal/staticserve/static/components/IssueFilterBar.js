@@ -16,6 +16,7 @@ function renderFacetSection(html, title, field, options, onToggleFilter) {
                     <button
                         class="issue-filter-chip ${field === 'severity' ? `severity-${option.value}` : ''} ${option.active ? 'active' : ''}"
                         onClick=${() => onToggleFilter(field, option.value)}
+                        aria-pressed=${option.active ? 'true' : 'false'}
                         title="Toggle ${title.toLowerCase()} ${option.label}"
                     >
                         <span class="issue-filter-chip-label">${option.label}</span>
@@ -37,10 +38,11 @@ function renderCategoryTree(html, categoryGroups, onToggleFilter) {
             <span class="issue-filter-group-label">Classification</span>
             <div class="issue-category-tree">
                 ${categoryGroups.map((group) => html`
-                    <div class="issue-category-branch ${group.active ? 'active' : ''} ${group.muted ? 'muted' : ''}">
+                    <div class="issue-category-branch ${group.active ? 'active' : ''}">
                         <button
                             class="issue-filter-chip issue-category-chip ${group.active ? 'active' : ''}"
                             onClick=${() => onToggleFilter('category', group.value)}
+                            aria-pressed=${group.active ? 'true' : 'false'}
                             title="Toggle main category ${group.label}"
                         >
                             <span class="issue-filter-chip-label">${group.label}</span>
@@ -50,8 +52,9 @@ function renderCategoryTree(html, categoryGroups, onToggleFilter) {
                             <div class="issue-subcategory-tree">
                                 ${group.subcategories.map((subcategory) => html`
                                     <button
-                                        class="issue-filter-subchip ${subcategory.active ? 'active' : ''} ${subcategory.muted ? 'muted' : ''} ${subcategory.inheritedActive ? 'inherited-active' : ''}"
+                                        class="issue-filter-subchip ${subcategory.active ? 'active' : ''}"
                                         onClick=${() => onToggleFilter('subcategory', subcategory.value)}
+                                        aria-pressed=${subcategory.active ? 'true' : 'false'}
                                         title="Toggle subcategory ${subcategory.label}"
                                     >
                                         <span class="issue-filter-chip-label">${subcategory.label}</span>
@@ -175,6 +178,7 @@ export async function createIssueFilterBar() {
                                 <button
                                     class="issue-filter-chip issue-filter-chip-compact severity-${option.value} ${option.active ? 'active' : ''}"
                                     onClick=${() => onToggleFilter('severity', option.value)}
+                                    aria-pressed=${option.active ? 'true' : 'false'}
                                     title="Toggle severity ${option.label}"
                                 >
                                     <span class="issue-filter-chip-label">${option.label}</span>

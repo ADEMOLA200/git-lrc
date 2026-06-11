@@ -1,96 +1,26 @@
-const DEFAULT_SEVERITIES = ['critical', 'error', 'warning', 'info'];
-const SELECTION_FIELDS = Object.freeze({
-    severity: 'severities',
-    confidence: 'confidences',
-    type: 'types',
-    category: 'categories',
-    subcategory: 'subcategories',
-});
-const FACET_FIELDS = Object.freeze(Object.keys(SELECTION_FIELDS));
-const CONFIDENCE_ORDER = ['high', 'medium', 'low'];
+import {
+    CONFIDENCE_ORDER,
+    DEFAULT_SEVERITIES,
+    FACET_FIELDS,
+    buildCommentVisibilityKey,
+    cloneIssueFilters,
+    createDefaultIssueFilters,
+    formatSeverityLabel,
+    getNormalizedFacetValue,
+    getSelectionFieldName,
+    hasActiveIssueFilters,
+    normalizeCommentShape,
+    normalizeFacetValue,
+    normalizeIssueFilters,
+    sortValues,
+    toggleIssueFilterValue,
+} from './issue_filter_model.mjs';
 
-function normalizeText(value) {
-    return String(value || '').trim();
-}
-
-function normalizeFacetValue(value) {
-    return normalizeText(value).toLowerCase();
-}
-
-function normalizeSeverity(value) {
-    const severity = normalizeFacetValue(value);
-    if (DEFAULT_SEVERITIES.includes(severity)) {
-        return severity;
-    }
-    return 'info';
-}
-
-function normalizeCommentShape(comment) {
-    return {
-        severity: normalizeSeverity(comment?.Severity ?? comment?.severity),
-        confidence: normalizeText(comment?.Confidence ?? comment?.confidence),
-        type: normalizeText(comment?.Type ?? comment?.type),
-        category: normalizeText(comment?.Category ?? comment?.category),
-        subcategory: normalizeText(comment?.Subcategory ?? comment?.subcategory),
-        content: normalizeText(comment?.Content ?? comment?.content),
-        line: comment?.Line ?? comment?.line ?? '',
-    };
-}
-
-function cloneSelectionSet(value) {
-    if (!(value instanceof Set)) {
-        return null;
-    }
-    return new Set(value);
-}
-
-function normalizeSelectionSet(values, normalizer = normalizeFacetValue) {
-    if (values == null) {
-        return null;
-    }
-    const normalized = new Set();
-    values.forEach((value) => {
-        const next = normalizer(value);
-        if (next) {
-            normalized.add(next);
-        }
-    });
-    return normalized;
-}
-
-function selectionMatches(selectionSet, normalizedValue) {
-    if (!(selectionSet instanceof Set) || selectionSet.size === 0) {
+function selectionMatches(disabledSet, normalizedValue) {
+    if (!normalizedValue) {
         return true;
     }
-    return selectionSet.has(normalizedValue);
-}
-
-function formatSeverityLabel(value) {
-    return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function sortValues(values, preferredOrder = []) {
-    return [...values].sort((left, right) => {
-        const leftIndex = preferredOrder.indexOf(left);
-        const rightIndex = preferredOrder.indexOf(right);
-        if (leftIndex !== -1 || rightIndex !== -1) {
-            if (leftIndex === -1) return 1;
-            if (rightIndex === -1) return -1;
-            return leftIndex - rightIndex;
-        }
-        return left.localeCompare(right);
-    });
-}
-
-function getSelectionFieldName(field) {
-    return SELECTION_FIELDS[field] || '';
-}
-
-function getNormalizedFacetValue(shape, field) {
-    if (field === 'severity') {
-        return shape.severity;
-    }
-    return normalizeFacetValue(shape[field]);
+    return !disabledSet.has(normalizedValue);
 }
 
 function matchesIssueFiltersExcludingField(comment, filters, excludedField) {
@@ -102,8 +32,7 @@ function matchesIssueFiltersExcludingField(comment, filters, excludedField) {
             return true;
         }
         const selectionField = getSelectionFieldName(field);
-        const selectionSet = normalizedFilters[selectionField];
-        return selectionMatches(selectionSet, getNormalizedFacetValue(shape, field));
+        return selectionMatches(normalizedFilters.disabled[selectionField], getNormalizedFacetValue(shape, field));
     });
 }
 
@@ -117,8 +46,7 @@ function matchesIssueFiltersExcludingFields(comment, filters, excludedFields) {
             return true;
         }
         const selectionField = getSelectionFieldName(field);
-        const selectionSet = normalizedFilters[selectionField];
-        return selectionMatches(selectionSet, getNormalizedFacetValue(shape, field));
+        return selectionMatches(normalizedFilters.disabled[selectionField], getNormalizedFacetValue(shape, field));
     });
 }
 
@@ -136,133 +64,49 @@ function iterateIssueComments(files, visitor) {
     });
 }
 
-export function createDefaultIssueFilters() {
-    return {
-        severities: new Set(DEFAULT_SEVERITIES),
-        confidences: null,
-        types: null,
-        categories: null,
-        subcategories: null,
+export {
+    buildCommentVisibilityKey,
+    cloneIssueFilters,
+    createDefaultIssueFilters,
+    hasActiveIssueFilters,
+    normalizeIssueFilters,
+    toggleIssueFilterValue,
+};
+
+export function buildIssueFilterUniverse(files, hiddenCommentKeys) {
+    const universe = {
+        confidences: new Set(),
+        types: new Set(),
+        categories: new Set(),
+        subcategories: new Set(),
     };
-}
 
-export function cloneIssueFilters(filters) {
-    const source = filters || createDefaultIssueFilters();
-    return {
-        severities: cloneSelectionSet(source.severities) || new Set(DEFAULT_SEVERITIES),
-        confidences: cloneSelectionSet(source.confidences),
-        types: cloneSelectionSet(source.types),
-        categories: cloneSelectionSet(source.categories),
-        subcategories: cloneSelectionSet(source.subcategories),
-    };
-}
-
-export function normalizeIssueFilters(filters) {
-    const source = filters || {};
-    return {
-        severities: normalizeSelectionSet(source.severities || DEFAULT_SEVERITIES, normalizeSeverity) || new Set(DEFAULT_SEVERITIES),
-        confidences: normalizeSelectionSet(source.confidences),
-        types: normalizeSelectionSet(source.types),
-        categories: normalizeSelectionSet(source.categories),
-        subcategories: normalizeSelectionSet(source.subcategories),
-    };
-}
-
-export function isDefaultIssueSeveritySelection(selection) {
-    if (!(selection instanceof Set) || selection.size !== DEFAULT_SEVERITIES.length) {
-        return false;
-    }
-    return DEFAULT_SEVERITIES.every((value) => selection.has(value));
-}
-
-export function hasActiveIssueFilters(filters) {
-    const normalized = normalizeIssueFilters(filters);
-    if (!isDefaultIssueSeveritySelection(normalized.severities)) {
-        return true;
-    }
-    return Boolean(normalized.confidences || normalized.types || normalized.categories || normalized.subcategories);
-}
-
-export function toggleIssueFilterValue(filters, field, rawValue, options = {}) {
-    const selectionField = getSelectionFieldName(field);
-    if (!selectionField) {
-        return normalizeIssueFilters(filters);
-    }
-
-    const next = cloneIssueFilters(filters);
-    const current = cloneSelectionSet(next[selectionField]);
-    const value = field === 'severity' ? normalizeSeverity(rawValue) : normalizeFacetValue(rawValue);
-    const allValues = Array.isArray(options.allValues)
-        ? options.allValues
-            .map((entry) => field === 'severity' ? normalizeSeverity(entry) : normalizeFacetValue(entry))
-            .filter(Boolean)
-        : [];
-    const childValues = Array.isArray(options.childValues)
-        ? options.childValues.map((entry) => normalizeFacetValue(entry)).filter(Boolean)
-        : [];
-    const allChildValues = Array.isArray(options.allChildValues)
-        ? options.allChildValues.map((entry) => normalizeFacetValue(entry)).filter(Boolean)
-        : [];
-    if (!value) {
-        return next;
-    }
-
-    const syncChildSelections = (enabled) => {
-        if (field !== 'category' || childValues.length === 0) {
+    iterateIssueComments(files, ({ filePath, comment }) => {
+        if (hiddenCommentKeys instanceof Set && hiddenCommentKeys.has(buildCommentVisibilityKey(filePath, comment))) {
             return;
         }
-
-        const currentChildren = cloneSelectionSet(next.subcategories);
-        if (enabled) {
-            if (!(currentChildren instanceof Set)) {
-                return;
-            }
-            childValues.forEach((childValue) => currentChildren.add(childValue));
-            next.subcategories = allChildValues.length > 0 && currentChildren.size === new Set(allChildValues).size
-                ? null
-                : currentChildren;
-            return;
+        const shape = normalizeCommentShape(comment);
+        if (shape.confidence) {
+            universe.confidences.add(normalizeFacetValue(shape.confidence));
         }
-
-        if (!(currentChildren instanceof Set)) {
-            const nextChildren = new Set(allChildValues);
-            childValues.forEach((childValue) => nextChildren.delete(childValue));
-            next.subcategories = nextChildren;
-            return;
+        if (shape.type) {
+            universe.types.add(normalizeFacetValue(shape.type));
         }
+        if (shape.category) {
+            universe.categories.add(normalizeFacetValue(shape.category));
+        }
+        if (shape.subcategory) {
+            universe.subcategories.add(normalizeFacetValue(shape.subcategory));
+        }
+    });
 
-        childValues.forEach((childValue) => currentChildren.delete(childValue));
-        next.subcategories = currentChildren;
+    return {
+        severities: DEFAULT_SEVERITIES,
+        confidences: sortValues(universe.confidences, CONFIDENCE_ORDER),
+        types: sortValues(universe.types),
+        categories: sortValues(universe.categories),
+        subcategories: sortValues(universe.subcategories),
     };
-
-    if (!(current instanceof Set)) {
-        if (allValues.length > 0) {
-            const nextSelection = new Set(allValues);
-            nextSelection.delete(value);
-            next[selectionField] = nextSelection;
-            syncChildSelections(false);
-            return next;
-        }
-
-        next[selectionField] = new Set();
-        return next;
-    }
-
-    if (current.has(value)) {
-        current.delete(value);
-        syncChildSelections(false);
-    } else {
-        current.add(value);
-        syncChildSelections(true);
-    }
-
-    if (allValues.length > 0 && current.size === allValues.length) {
-        next[selectionField] = null;
-        return next;
-    }
-
-    next[selectionField] = current.size > 0 ? current : null;
-    return next;
 }
 
 export function resetIssueFilters() {
@@ -280,39 +124,31 @@ export function matchesIssueFilters(comment, filters) {
 
     return FACET_FIELDS.every((field) => {
         const selectionField = getSelectionFieldName(field);
-        const selectionSet = normalized[selectionField];
-        return selectionMatches(selectionSet, getNormalizedFacetValue(shape, field));
+        return selectionMatches(normalized.disabled[selectionField], getNormalizedFacetValue(shape, field));
     });
 }
 
-export function getIssueFilterSummary(filters) {
+export function getIssueFilterSummary(filters, universe = null) {
     const normalized = normalizeIssueFilters(filters);
     const active = [];
+    const summaryFields = [
+        ['severities', 'Severity', universe?.severities || DEFAULT_SEVERITIES],
+        ['confidences', 'Confidence', universe?.confidences || []],
+        ['types', 'Type', universe?.types || []],
+        ['categories', 'Main Category', universe?.categories || []],
+        ['subcategories', 'Subcategory', universe?.subcategories || []],
+    ];
 
-    if (!isDefaultIssueSeveritySelection(normalized.severities)) {
-        active.push(`Severity: ${normalized.severities.size}`);
-    }
-    if (normalized.confidences) {
-        active.push(`Confidence: ${normalized.confidences.size}`);
-    }
-    if (normalized.types) {
-        active.push(`Type: ${normalized.types.size}`);
-    }
-    if (normalized.categories) {
-        active.push(`Main Category: ${normalized.categories.size}`);
-    }
-    if (normalized.subcategories) {
-        active.push(`Subcategory: ${normalized.subcategories.size}`);
-    }
+    summaryFields.forEach(([fieldName, label, allValues]) => {
+        const disabled = normalized.disabled[fieldName];
+        if (disabled.size === 0) {
+            return;
+        }
+        const enabledCount = allValues.filter((value) => !disabled.has(value)).length;
+        active.push(`${label}: ${enabledCount}`);
+    });
 
     return active;
-}
-
-export function buildCommentVisibilityKey(filePath, comment) {
-    const path = filePath || comment?.FilePath || comment?.file_path || comment?.filePath || '';
-    const shape = normalizeCommentShape(comment);
-    const content = shape.content.replace(/\s+/g, ' ');
-    return `${path}::${shape.line}::${shape.severity}::${normalizeFacetValue(shape.confidence)}::${normalizeFacetValue(shape.type)}::${normalizeFacetValue(shape.category)}::${normalizeFacetValue(shape.subcategory)}::${content}`;
 }
 
 export function countFileVisibleIssues(file, filters, hiddenCommentKeys) {
@@ -391,15 +227,14 @@ export function buildIssueFacetOptions(files, filters, hiddenCommentKeys) {
         });
     });
 
-    const categorySelection = normalized.categories;
-    if (categorySelection instanceof Set && categorySelection.size > 0) {
+    if (normalized.disabled.categories.size > 0) {
         const scopedSubcategories = new Map();
         iterateIssueComments(files, ({ filePath, comment }) => {
             if (hiddenCommentKeys instanceof Set && hiddenCommentKeys.has(buildCommentVisibilityKey(filePath, comment))) {
                 return;
             }
             const shape = normalizeCommentShape(comment);
-            if (!selectionMatches(categorySelection, normalizeFacetValue(shape.category))) {
+            if (!selectionMatches(normalized.disabled.categories, normalizeFacetValue(shape.category))) {
                 return;
             }
             if (!shape.subcategory) {
@@ -420,23 +255,23 @@ export function buildIssueFacetOptions(files, filters, hiddenCommentKeys) {
     return {
         severities: sortValues(optionMaps.severity.keys(), DEFAULT_SEVERITIES).map((value) => ({
             ...optionMaps.severity.get(value),
-            active: normalized.severities.has(value),
+            active: !normalized.disabled.severities.has(value),
         })),
         confidences: sortValues(optionMaps.confidence.keys(), CONFIDENCE_ORDER).map((value) => ({
             ...optionMaps.confidence.get(value),
-            active: !(normalized.confidences instanceof Set) || normalized.confidences.has(value),
+            active: !normalized.disabled.confidences.has(value),
         })),
         types: sortValues(optionMaps.type.keys()).map((value) => ({
             ...optionMaps.type.get(value),
-            active: !(normalized.types instanceof Set) || normalized.types.has(value),
+            active: !normalized.disabled.types.has(value),
         })),
         categories: sortValues(optionMaps.category.keys()).map((value) => ({
             ...optionMaps.category.get(value),
-            active: !(normalized.categories instanceof Set) || normalized.categories.has(value),
+            active: !normalized.disabled.categories.has(value),
         })),
         subcategories: sortValues(optionMaps.subcategory.keys()).map((value) => ({
             ...optionMaps.subcategory.get(value),
-            active: !(normalized.subcategories instanceof Set) || normalized.subcategories.has(value),
+            active: !normalized.disabled.subcategories.has(value),
         })),
     };
 }
@@ -459,7 +294,7 @@ export function buildIssueCategoryGroups(files, filters, hiddenCommentKeys) {
         }
 
         const categoryValue = normalizeFacetValue(shape.category);
-        const categoryIsActive = !(normalized.categories instanceof Set) || normalized.categories.has(categoryValue);
+        const categoryIsActive = !normalized.disabled.categories.has(categoryValue);
         const categoryEntry = categoryMap.get(categoryValue) || {
             value: categoryValue,
             label: shape.category,
@@ -471,9 +306,7 @@ export function buildIssueCategoryGroups(files, filters, hiddenCommentKeys) {
 
         if (shape.subcategory) {
             const subcategoryValue = normalizeFacetValue(shape.subcategory);
-            const subcategoryIsActive = categoryIsActive && (
-                !(normalized.subcategories instanceof Set) || normalized.subcategories.has(subcategoryValue)
-            );
+            const subcategoryIsActive = categoryIsActive && !normalized.disabled.subcategories.has(subcategoryValue);
             const subcategoryEntry = categoryEntry.subcategoryMap.get(subcategoryValue) || {
                 value: subcategoryValue,
                 label: shape.subcategory,
@@ -526,10 +359,8 @@ export function getIssueFilterStats(files, filters, hiddenCommentKeys, getVisibi
         if (matchesIssueFilters(comment, normalized)) {
             visible++;
         }
-        if (!(normalized.categories instanceof Set) || normalized.categories.size === 0 || normalized.categories.has(normalizeFacetValue(shape.category))) {
-            if (shape.subcategory) {
-                availableSubcategories.add(shape.subcategory);
-            }
+        if (shape.subcategory && selectionMatches(normalized.disabled.categories, normalizeFacetValue(shape.category))) {
+            availableSubcategories.add(shape.subcategory);
         }
     });
 
