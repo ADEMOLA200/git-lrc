@@ -1,4 +1,4 @@
-const { html } = window.preact;
+const { html, useState, useEffect } = window.preact;
 
 export function ConnectorFormPage({
   title,
@@ -27,6 +27,13 @@ export function ConnectorFormPage({
   connectorNamePlaceholder,
   apiDefaultModel = '',
 }) {
+  const [fileError, setFileError] = useState('');
+
+  // Clear file error when provider changes
+  useEffect(() => {
+    setFileError('');
+  }, [form.provider_name]);
+
   const isOllama = form.provider_name === 'ollama';
   const isGeminiEnterprise = form.provider_name === 'gemini-enterprise';
   const showBaseURL = Boolean(selectedProvider.requiresBaseURL);
@@ -49,7 +56,8 @@ export function ConnectorFormPage({
     if (!file) return;
 
     if (file.size > 1024 * 1024) {
-      alert('File is too large. Please upload a valid service account JSON under 1MB.');
+      setFileError('File is too large. Please upload a valid service account JSON under 1MB.');
+      onFieldChange('api_key', '');
       return;
     }
 
@@ -63,8 +71,11 @@ export function ConnectorFormPage({
         if (parsed.project_id) {
           onFieldChange('gcp_project_id', parsed.project_id);
         }
+        setFileError('');
       } catch (err) {
         console.error('Failed to parse Service Account JSON:', err);
+        setFileError('Failed to parse Service Account JSON. Please upload a valid JSON file.');
+        onFieldChange('api_key', '');
       }
     };
     reader.readAsText(file);
@@ -138,6 +149,7 @@ export function ConnectorFormPage({
                     </label>
                   </div>
                 </div>
+                ${fileError ? html`<div class="status err" style="margin-top: -10px; margin-bottom: 15px;">${fileError}</div>` : ''}
                 <p style="margin: -5px 0 15px 0; font-size: 12px; color: var(--text-muted, #858585); line-height: 1.5;">
                   Follow this guide to <a href="https://developers.google.com/workspace/guides/create-credentials#service-account" target="_blank" rel="noopener noreferrer" style="color: var(--text-link, #007acc); text-decoration: underline;">create a service account JSON file</a> and assign the <strong>Agent Platform user</strong> role.
                 </p>
