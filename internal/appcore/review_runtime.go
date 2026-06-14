@@ -305,6 +305,37 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		return fmt.Errorf("no diff content collected")
 	}
 
+	// Apply .lrc/ignore (if present) to the collected diff before zipping it
+	// up, so ignored files are never sent to LiveReview for review or billing.
+	if repoRootPath != "" {
+		lrcDir, ok, lrcErr := lrcrules.Load(repoRootPath)
+		if lrcErr != nil {
+			log.Printf("Warning: failed to load .lrc directory: %v", lrcErr)
+		} else if ok {
+			patterns, patErr := lrcrules.LoadIgnorePatterns(lrcDir)
+			if patErr != nil {
+				log.Printf("Warning: failed to read .lrc/ignore: %v", patErr)
+			} else if len(patterns) > 0 {
+				filtered, excluded := lrcrules.FilterDiff(diffContent, patterns)
+				if len(excluded) > 0 {
+					if len(filtered) == 0 {
+						fmt.Printf("LiveReview: no diff to submit -- %d file(s) excluded by .lrc/ignore: %s\n",
+							len(excluded), formatExcludedFiles(excluded))
+						if !isPostCommitReview {
+							if err := ensureAttestationFull(attestationPayload{Action: "skipped"}, verbose, &attestationWritten); err != nil {
+								return err
+							}
+						}
+						return nil
+					}
+					fmt.Printf("LiveReview: excluding %d file(s) via .lrc/ignore: %s\n",
+						len(excluded), formatExcludedFiles(excluded))
+					diffContent = filtered
+				}
+			}
+		}
+	}
+
 	var fakeBaseFiles []reviewmodel.DiffReviewFileResult
 	if fakeMode {
 		fakeBaseFiles, err = parseDiffToFiles(diffContent)
@@ -1547,6 +1578,19 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 	}
 
 	return nil
+}
+
+// maxExcludedFilesListed caps how many .lrc/ignore-excluded file paths are
+// printed by name before the rest are summarized as "and N more", so a
+// large ignore list doesn't produce an unreadable wall of text.
+const maxExcludedFilesListed = 10
+
+func formatExcludedFiles(excluded []string) string {
+	if len(excluded) <= maxExcludedFilesListed {
+		return strings.Join(excluded, ", ")
+	}
+	shown := excluded[:maxExcludedFilesListed]
+	return fmt.Sprintf("%s, and %d more", strings.Join(shown, ", "), len(excluded)-maxExcludedFilesListed)
 }
 
 func collectDiffWithOptions(opts reviewopts.Options) ([]byte, error) {
