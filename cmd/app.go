@@ -30,6 +30,9 @@ type Handlers struct {
 	RunInternalClaudeSetupSubmitKey cli.ActionFunc
 	RunInternalClaudeSetupStatus  cli.ActionFunc
 	RunRemoveAttestation          cli.ActionFunc
+	RunConfigInit                 cli.ActionFunc
+	RunConfigCheck                cli.ActionFunc
+	RunConfigPreview              cli.ActionFunc
 }
 
 // BuildApp constructs the full CLI app with all command wiring.
@@ -292,6 +295,27 @@ func BuildApp(version, buildTime, gitCommit, reviewMode string, baseFlags, debug
 				Name:   "remove-attestation",
 				Usage:  "Remove the attestation for the current staged tree",
 				Action: h.RunRemoveAttestation,
+			},
+			{
+				Name:  "config",
+				Usage: "Manage .lrc/ repository rules configuration",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "init",
+						Usage:  "Scaffold the .lrc/ directory structure",
+						Action: h.RunConfigInit,
+					},
+					{
+						Name:   "check",
+						Usage:  "Validate .lrc/ rules and structure (offline)",
+						Action: h.RunConfigCheck,
+					},
+					{
+						Name:   "preview",
+						Usage:  "Show the rules bundle LiveReview will use (offline)",
+						Action: h.RunConfigPreview,
+					},
+				},
 			},
 			{
 				Name:   "internal",

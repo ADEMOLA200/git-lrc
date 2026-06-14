@@ -1,6 +1,7 @@
 package appcore
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"encoding/base64"
@@ -29,6 +30,7 @@ import (
 	"github.com/HexmosTech/git-lrc/interactive/input"
 	"github.com/HexmosTech/git-lrc/internal/appcore/decisionruntime"
 	"github.com/HexmosTech/git-lrc/internal/decisionflow"
+	"github.com/HexmosTech/git-lrc/internal/lrcrules"
 	"github.com/HexmosTech/git-lrc/internal/reviewapi"
 	"github.com/HexmosTech/git-lrc/internal/reviewdb"
 	"github.com/HexmosTech/git-lrc/internal/reviewhtml"
@@ -315,8 +317,24 @@ func runReviewWithOptions(opts reviewopts.Options) error {
 		log.Printf("Collected %d bytes of diff content", len(diffContent))
 	}
 
-	// Create ZIP archive
-	zipData, err := reviewapi.CreateZipArchive(diffContent)
+	// Create ZIP archive, including the raw .lrc/ tree (if present) so
+	// LiveReview can apply Repository Rules.
+	var lrcExtras map[string][]byte
+	if repoRootPath != "" {
+		var lrcWarnings []string
+		lrcExtras, lrcWarnings, err = lrcrules.CollectZipExtras(repoRootPath)
+		if err != nil {
+			log.Printf("Warning: failed to collect .lrc/ files: %v", err)
+		}
+		for _, w := range lrcWarnings {
+			log.Printf("Warning: .lrc/ %s", w)
+		}
+		if verbose && len(lrcExtras) > 0 {
+			log.Printf("Including %d .lrc/ file(s) in review bundle", len(lrcExtras))
+		}
+	}
+
+	zipData, err := reviewapi.CreateZipArchiveWithExtras(diffContent, lrcExtras)
 	if err != nil {
 		return fmt.Errorf("failed to create zip archive: %w", err)
 	}
@@ -1934,6 +1952,21 @@ func loadConfigValues(apiKeyOverride, apiURLOverride string, verbose bool) (*Con
 	return config, nil
 }
 
+// zipEntryNames lists the file names contained in a zip archive, falling
+// back to "diff.txt" if the archive can't be read.
+func zipEntryNames(zipData []byte) []string {
+	reader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return []string{"diff.txt"}
+	}
+
+	names := make([]string, 0, len(reader.File))
+	for _, f := range reader.File {
+		names = append(names, f.Name)
+	}
+	return names
+}
+
 // saveBundleForInspection saves the bundle in multiple formats for inspection
 func saveBundleForInspection(path string, diffContent, zipData []byte, base64Diff string, verbose bool) error {
 	// Create a comprehensive bundle file with sections
@@ -1951,7 +1984,7 @@ func saveBundleForInspection(path string, diffContent, zipData []byte, base64Dif
 	buf.WriteString("## SECTION 2: Zip Archive Info\n")
 	buf.WriteString("## " + strings.Repeat("-", 76) + "\n")
 	buf.WriteString(fmt.Sprintf("## Zip size: %d bytes\n", len(zipData)))
-	buf.WriteString("## Contains: diff.txt\n\n")
+	buf.WriteString("## Contains: " + strings.Join(zipEntryNames(zipData), ", ") + "\n\n")
 
 	buf.WriteString("## SECTION 3: Base64 Encoded Bundle (sent to API)\n")
 	buf.WriteString("## This is what gets transmitted in the API request\n")
