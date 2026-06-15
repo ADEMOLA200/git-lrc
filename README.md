@@ -37,7 +37,7 @@ GenAI today is a **race car without brakes**. It accelerates fast -- you describ
 
 **`git-lrc` is your braking system.** It hooks into `git commit` and runs an AI review on every diff _before_ it lands. 60-second setup. Completely free.
 
-**At a glance:** 10 risk categories &middot; 100+ failure patterns tracked &middot; every commit scanned automatically.
+**At a glance:** [10 risk categories](#what-git-lrc-checks-for) &middot; [100+ failure patterns tracked](#what-git-lrc-checks-for) &middot; every commit scanned automatically.
 
 ```bash
 # Try it now (Linux/macOS)
@@ -364,6 +364,189 @@ If it's sent to the model, you can see it first.
 - We document reporting channels, response commitments, and operational safeguards clearly.
 - Automated security checks and SBOM workflows support transparent verification.
 - For complete details, see [SECURITY.md](SECURITY.md).
+
+## What git-lrc Checks For
+
+Every review is checked against **10 risk categories** and **100+ specific failure patterns**, grouped into three pillars: what takes down production, what ends up in a disclosure letter, and what slows every future release. Expand any pillar, then any category, to see the exact patterns and why each one matters.
+
+<details>
+<summary><strong>Outages</strong> — what takes down production, and your on-call rotation (4 categories, 40 patterns)</summary>
+
+<details>
+<summary><strong>Reliability</strong></summary>
+
+- **Error Handling** — Unhandled errors crash services mid-request, leaving customers staring at broken pages during peak traffic.
+- **Fault Tolerance** — One dependency hiccup cascades into a full outage instead of degrading gracefully.
+- **Retry Logic** — Missing retries turn brief network blips into failed payments, lost orders, and support tickets.
+- **Timeout Management** — Requests hang forever, exhausting connections until the whole service grinds to a halt.
+- **Resilience Patterns** — No circuit breakers means one slow service drags down everything connected to it.
+- **Availability Risks** — Single points of failure turn a routine deploy into a multi-hour outage.
+- **Data Integrity** — Corrupted or inconsistent records silently poison reports, billing, and downstream decisions.
+- **Race Conditions** — Two requests collide and overwrite each other's work — intermittently, unreproducibly, in production.
+- **Resource Cleanup** — Leaked connections and file handles pile up until the server falls over at 2am.
+- **Failure Recovery** — No rollback path means a bad deploy stays live until someone manually fixes it.
+
+</details>
+
+<details>
+<summary><strong>Correctness</strong></summary>
+
+- **Logic Errors** — Wrong calculations ship to production and quietly produce incorrect invoices, prices, or reports.
+- **Edge Cases** — The 1% scenario nobody tested is the one your biggest customer hits first.
+- **Data Validation** — Bad input slips through and corrupts records that are expensive to clean up later.
+- **State Management** — Stale or out-of-sync state shows users the wrong balance, status, or inventory count.
+- **Concurrency Bugs** — Parallel operations step on each other, causing duplicate charges or lost updates.
+- **Business Rule Violations** — A discount, limit, or policy nobody approved gets applied automatically, at scale.
+- **Numerical Accuracy** — Rounding and precision errors compound into real financial discrepancies over time.
+- **Null Handling** — An unexpected null crashes the checkout flow at the worst possible moment.
+- **Type Safety** — A type mismatch silently mangles data instead of failing loudly where it's cheap to fix.
+- **API Contract Violations** — A backend change breaks every client that depends on the old response shape.
+
+</details>
+
+<details>
+<summary><strong>Performance</strong></summary>
+
+- **Database Efficiency** — An unindexed query that's fine today locks up the database the moment you scale.
+- **Algorithmic Complexity** — Code that's fast with 100 records grinds to a crawl with 100,000.
+- **Memory Usage** — Memory leaks force daily restarts — and eventually an outage when nobody's watching.
+- **CPU Utilization** — A hot loop quietly burns CPU until autoscaling bills spike or pods get killed.
+- **Network Efficiency** — Chatty calls multiply latency until a simple page takes seconds to load.
+- **Caching** — Every request hits the database directly, so traffic spikes become outages.
+- **Concurrency** — Without proper concurrency, your service serves one user at a time under load.
+- **Resource Contention** — Threads fight over the same lock, and the whole app slows to match the slowest one.
+- **Rendering Performance** — A janky UI makes users think the product is broken, even when it isn't.
+- **Startup Performance** — Slow boot times mean slow deploys, slow rollbacks, and slow recovery from incidents.
+
+</details>
+
+<details>
+<summary><strong>Scalability</strong></summary>
+
+- **Horizontal Scaling** — The app can't run on more than one instance, so growth means a rewrite.
+- **Vertical Scaling** — You're one viral spike away from maxing out the biggest server money can buy.
+- **Distributed Systems** — Two services disagree about reality, and nobody notices until the numbers don't add up.
+- **Load Balancing** — Traffic piles onto one node while others sit idle, until that one node falls over.
+- **Capacity Planning** — Nobody knows the breaking point until customers find it for you, live.
+- **Bottleneck Risks** — One slow component caps the throughput of the entire system, no matter what else you scale.
+- **Concurrency Limits** — A hardcoded limit silently throttles your busiest customers during your biggest moments.
+- **Service Growth Constraints** — What works for 10 teams collapses under coordination overhead at 50.
+- **Database Scaling** — The database that powered your launch becomes the thing that takes you down at scale.
+- **Queue Backpressure** — Unbounded queues hide a growing backlog until it surfaces as hours-long delays.
+
+</details>
+
+</details>
+
+<details>
+<summary><strong>Breaches</strong> — what ends up in a disclosure letter, and a board meeting (2 categories, 20 patterns)</summary>
+
+<details>
+<summary><strong>Security</strong></summary>
+
+- **Authentication** — A weak login flow is an open door — and attackers check every door.
+- **Authorization** — A missing permission check lets any logged-in user act as an admin.
+- **Secrets Management** — A hardcoded API key in source control is a breach waiting for someone to find it.
+- **Input Validation** — Unvalidated input is the first line in almost every successful attack.
+- **Injection Vulnerabilities** — One unsanitized query away from an attacker reading your entire database.
+- **Cryptography** — Weak or homemade encryption gives a false sense of security — and a real breach.
+- **Dependency Vulnerabilities** — A known CVE in a dependency is a published instruction manual for attackers.
+- **Data Exposure** — Sensitive fields leak into logs, responses, or error messages where they don't belong.
+- **Session Management** — A session that never expires is a credential an attacker can use forever.
+- **Security Logging & Auditing** — Without audit trails, you can't tell what happened, when, or who's responsible — during an incident or after.
+
+</details>
+
+<details>
+<summary><strong>Compliance & Governance</strong></summary>
+
+- **Privacy** — Mishandled personal data turns a code review comment into a regulatory investigation.
+- **Regulatory Compliance** — A missed requirement in GDPR, HIPAA, or SOC 2 becomes a finding in your next audit.
+- **Auditability** — When auditors ask "who changed this and why," there has to be an answer.
+- **Data Retention** — Keeping data longer than allowed turns a storage decision into a legal liability.
+- **Data Residency** — Data stored in the wrong region can violate contracts and local law simultaneously.
+- **Licensing** — An incompatible open-source license buried in a dependency can taint your entire codebase.
+- **Policy Enforcement** — Security policy that exists only on paper doesn't stop a real incident.
+- **Access Controls** — Former employees with active access are an open invitation, not an oversight.
+- **Change Management** — Unreviewed changes to production are how "small fixes" become headline incidents.
+- **Governance Standards** — Inconsistent standards across teams mean your weakest team sets your actual risk level.
+
+</details>
+
+</details>
+
+<details>
+<summary><strong>Technical Debt</strong> — what slows every future release until someone pays it down (4 categories, 44 patterns)</summary>
+
+<details>
+<summary><strong>Maintainability</strong></summary>
+
+- **Code Complexity** — Code only one person understands is a single point of failure with a name and a vacation schedule.
+- **Readability** — Every minute spent decoding unclear code is a minute not spent shipping.
+- **Documentation** — Undocumented systems turn every handoff into a multi-week ramp-up.
+- **Code Duplication** — The same bug gets fixed in one of five copies — and reappears from the other four.
+- **Dead Code** — Unused code still gets compiled, reviewed, and feared every time someone touches it.
+- **Naming Quality** — Misleading names cause the exact bug everyone assumed couldn't happen.
+- **Testability** — Code that can't be tested ships untested — every time, by default.
+- **Technical Debt** — Debt that's never tracked never gets a budget, so it never gets paid down.
+- **Refactoring Opportunities** — Postponed cleanup compounds until the "quick fix" takes a quarter.
+- **Configuration Management** — A config value hardcoded for staging quietly ships to production.
+- **UI/UX** — Inconsistent UI patterns erode trust in the product, one small confusion at a time.
+- **Accessibility** — Inaccessible interfaces exclude real users — and increasingly, that's a legal exposure too.
+
+</details>
+
+<details>
+<summary><strong>Architecture</strong></summary>
+
+- **Separation of Concerns** — When everything depends on everything, one small change requires testing the whole system.
+- **Modularity** — A monolith with no seams means every team is blocked by every other team's code.
+- **Coupling** — Tightly coupled services mean a change in one place breaks three others, unpredictably.
+- **Cohesion** — Logic scattered across the codebase means fixing one bug means hunting in five files.
+- **Layering Violations** — Business logic in the UI layer means you can't change one without breaking the other.
+- **Dependency Management** — An undocumented dependency graph means nobody knows what breaks if this service goes down.
+- **Service Boundaries** — Fuzzy service boundaries turn "add one feature" into "coordinate four teams."
+- **Domain Modeling** — A data model that doesn't match the business means every new feature fights the model.
+- **API Design** — A poorly designed API gets baked into every client — and outlives its own usefulness.
+- **Extensibility** — A system that can't be extended gets rewritten — usually under deadline pressure.
+
+</details>
+
+<details>
+<summary><strong>Developer Experience</strong></summary>
+
+- **Testing** — Low test coverage means every release is a bet, not a guarantee.
+- **CI/CD** — A flaky pipeline trains engineers to ignore failures — including the real ones.
+- **Build System** — A slow build is a tax every developer pays, every day, forever.
+- **Local Development** — If it's hard to run locally, it's hard to debug — and bugs survive longer.
+- **Debuggability** — No logs, no traces, no clue — incidents take hours instead of minutes to resolve.
+- **Observability** — You can't fix what you can't see — and you won't see it until a customer reports it.
+- **Deployment Process** — A manual, fragile deploy process is where "routine release" becomes "incident."
+- **Automation** — Manual steps are where human error enters the system — reliably, repeatedly.
+- **Developer Tooling** — Bad tooling doesn't just slow developers down — it pushes your best ones toward the door.
+- **Documentation Quality** — Wrong docs are worse than no docs — they actively mislead the next person.
+- **UI/UX** — A confusing internal tool wastes time across the whole team, every single day.
+- **Accessibility** — Tools that aren't accessible quietly exclude teammates who could otherwise do the job well.
+
+</details>
+
+<details>
+<summary><strong>Cost</strong></summary>
+
+- **Cloud Resource Waste** — Idle resources keep billing 24/7 whether anyone's using them or not.
+- **Infrastructure Overprovisioning** — Paying for capacity "just in case" is a permanent tax on a maybe.
+- **Storage Optimization** — Unmanaged storage growth turns into a line item nobody can explain at quarter-end.
+- **Database Cost Optimization** — Inefficient queries don't just slow things down — on managed databases, they show up on the invoice.
+- **Excessive API Usage** — Unnecessary third-party API calls turn into a surprise five-figure bill.
+- **Third-Party Service Costs** — Forgotten integrations keep charging long after anyone remembers why they're there.
+- **Redundant Computation** — Recomputing the same result over and over burns money to produce nothing new.
+- **LLM Token Consumption** — Unbounded prompts and retries can turn an AI feature into your biggest infrastructure cost.
+- **Caching Opportunities** — Every uncached request is a request you're paying for twice.
+- **Data Transfer Costs** — Cross-region or egress traffic adds up fast — and rarely shows up until the bill does.
+
+</details>
+
+</details>
 
 ## FAQ
 
