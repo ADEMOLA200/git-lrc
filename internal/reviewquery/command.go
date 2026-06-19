@@ -10,10 +10,14 @@ import (
 // RunQuery is the default action for `lrc query`. It either saves an alias
 // (--add/--name) or runs a saved alias / raw SQL and prints a table or JSON.
 func RunQuery(c *cli.Context) error {
-	if add := strings.TrimSpace(c.String("add")); add != "" {
+	if c.IsSet("add") {
+		add := strings.TrimSpace(c.String("add"))
 		name := strings.TrimSpace(c.String("name"))
-		if name == "" {
+		if !c.IsSet("name") || name == "" {
 			return fmt.Errorf("--add requires --name")
+		}
+		if add == "" {
+			return fmt.Errorf("--add requires non-empty SQL")
 		}
 		if err := AddAlias(name, add); err != nil {
 			return err
@@ -28,7 +32,10 @@ func RunQuery(c *cli.Context) error {
 
 	// urfave/cli stops parsing flags at the first positional arg, so also scan
 	// the remaining args for trailing flags (e.g. `lrc query stats --from 2024-01-01`).
-	positionals := parseTrailingFlags(c.Args().Slice(), &jsonOut, &filter)
+	positionals, err := parseTrailingFlags(c.Args().Slice(), &jsonOut, &filter)
+	if err != nil {
+		return err
+	}
 
 	arg := "stats" // default alias
 	if len(positionals) > 0 && strings.TrimSpace(positionals[0]) != "" {
@@ -64,45 +71,50 @@ func RunQuery(c *cli.Context) error {
 // parseTrailingFlags pulls flags out of args that cli left unparsed (anything
 // after the first positional). Supports `--flag value` and `--flag=value`.
 // Returns the remaining positional args; sets jsonOut/filter via pointers.
-func parseTrailingFlags(args []string, jsonOut *bool, filter *Filter) []string {
+// Returns an error if a bound flag (--from/--to/--range) is the last arg with
+// no value following it, rather than silently swallowing the flag name into
+// the positionals (where it would end up mangling the SQL/alias lookup).
+func parseTrailingFlags(args []string, jsonOut *bool, filter *Filter) ([]string, error) {
+	boundFlags := []struct {
+		name string
+		dest *string
+	}{
+		{"--from", &filter.From},
+		{"--to", &filter.To},
+		{"--range", &filter.Range},
+	}
+
 	positionals := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		// flag=value form
-		switch {
-		case a == "--json" || a == "-j":
+		if a == "--json" || a == "-j" {
 			*jsonOut = true
 			continue
-		case strings.HasPrefix(a, "--from="):
-			filter.From = strings.TrimPrefix(a, "--from=")
-			continue
-		case strings.HasPrefix(a, "--to="):
-			filter.To = strings.TrimPrefix(a, "--to=")
-			continue
-		case strings.HasPrefix(a, "--range="):
-			filter.Range = strings.TrimPrefix(a, "--range=")
-			continue
 		}
-		// flag value form (consume next arg)
-		if i+1 < len(args) {
-			switch a {
-			case "--from":
-				filter.From = args[i+1]
-				i++
-				continue
-			case "--to":
-				filter.To = args[i+1]
-				i++
-				continue
-			case "--range":
-				filter.Range = args[i+1]
-				i++
-				continue
+
+		consumed := false
+		for _, bf := range boundFlags {
+			if val, ok := strings.CutPrefix(a, bf.name+"="); ok {
+				*bf.dest = val
+				consumed = true
+				break
 			}
+			if a == bf.name {
+				if i+1 >= len(args) {
+					return nil, fmt.Errorf("%s requires a value", bf.name)
+				}
+				*bf.dest = args[i+1]
+				i++
+				consumed = true
+				break
+			}
+		}
+		if consumed {
+			continue
 		}
 		positionals = append(positionals, a)
 	}
-	return positionals
+	return positionals, nil
 }
 
 // RunQueryList prints every alias and its source.

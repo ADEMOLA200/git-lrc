@@ -2,6 +2,7 @@ package reviewquery
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -67,9 +68,11 @@ func parseRecord(raw, branch string) (ReviewRecord, bool) {
 	}
 	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(parts[4])); err == nil {
 		rec.Date = t
+	} else {
+		log.Printf("reviewquery: failed to parse commit date %q for %s: %v", parts[4], rec.ShortHash, err)
 	}
 	body := parts[6]
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if action, iter, cov, ok := parseTrailer(line); ok {
 			rec.Action = action
 			rec.Iterations = iter
@@ -84,6 +87,7 @@ func parseRecord(raw, branch string) (ReviewRecord, bool) {
 func currentBranch() string {
 	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
+		log.Printf("reviewquery: failed to determine current branch: %v", err)
 		return ""
 	}
 	return strings.TrimSpace(string(out))
@@ -104,7 +108,10 @@ func Extract(f Filter) ([]ReviewRecord, error) {
 		args = append(args, "--until="+f.To)
 	}
 	if f.Range != "" {
-		args = append(args, f.Range)
+		// --end-of-options stops git from treating f.Range as an option if it
+		// happens to start with '-' (e.g. a crafted --range value); the rest of
+		// the args up to "--" are already our own well-formed --flag=value pairs.
+		args = append(args, "--end-of-options", f.Range)
 	}
 	if f.PathPrefix != "" {
 		args = append(args, "--", f.PathPrefix)

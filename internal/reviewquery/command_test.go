@@ -23,13 +23,29 @@ func TestParseTrailingFlags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			jsonOut := false
 			f := Filter{}
-			pos := parseTrailingFlags(tc.args, &jsonOut, &f)
+			pos, err := parseTrailingFlags(tc.args, &jsonOut, &f)
+			if err != nil {
+				t.Fatalf("parseTrailingFlags error: %v", err)
+			}
 			if len(pos) != len(tc.wantPos) || (len(pos) > 0 && pos[0] != tc.wantPos[0]) {
 				t.Errorf("positionals = %v; want %v", pos, tc.wantPos)
 			}
 			if f.From != tc.from || f.To != tc.to || f.Range != tc.rng || jsonOut != tc.json {
 				t.Errorf("got from=%q to=%q range=%q json=%v; want from=%q to=%q range=%q json=%v",
 					f.From, f.To, f.Range, jsonOut, tc.from, tc.to, tc.rng, tc.json)
+			}
+		})
+	}
+}
+
+func TestParseTrailingFlagsMissingValue(t *testing.T) {
+	for _, flag := range []string{"--from", "--to", "--range"} {
+		t.Run(flag, func(t *testing.T) {
+			jsonOut := false
+			f := Filter{}
+			_, err := parseTrailingFlags([]string{"stats", flag}, &jsonOut, &f)
+			if err == nil {
+				t.Fatalf("expected error when %s has no value, got nil", flag)
 			}
 		})
 	}

@@ -52,6 +52,12 @@ func FormatTable(r QueryResult) string {
 
 // FormatJSON renders a QueryResult as a JSON array of row objects, preserving
 // column order. All values are strings (the engine stringifies cells).
+//
+// This builds the object syntax by hand rather than json.Marshal-ing a
+// map[string]string per row: encoding/json has no way to preserve key order
+// for a Go map (it always sorts map keys alphabetically), and column order is
+// part of this format's contract. Each key/value is still run through
+// json.Marshal so escaping stays correct.
 func FormatJSON(r QueryResult) (string, error) {
 	var b strings.Builder
 	b.WriteString("[")

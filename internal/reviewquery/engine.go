@@ -2,6 +2,8 @@ package reviewquery
 
 import (
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/HexmosTech/git-lrc/storage"
 )
@@ -33,7 +35,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 // Run extracts the review history (scoped by filter), loads it into an in-memory
 // SQLite table named review_log, and runs sqlText against it. sqlText must
-// already be resolved (alias -> SQL) by the caller.
+// already be resolved (alias -> SQL) by the caller, but may otherwise be raw
+// text typed by the user (an unresolved alias name is treated as ad-hoc SQL) —
+// RunOnRecords enforces that it's a single read-only statement before running it.
 func Run(f Filter, sqlText string) (QueryResult, error) {
 	records, err := Extract(f)
 	if err != nil {
@@ -42,14 +46,43 @@ func Run(f Filter, sqlText string) (QueryResult, error) {
 	return RunOnRecords(records, sqlText)
 }
 
+// validateReadOnlySQL guards the in-memory review_log database against
+// anything but a single read-only SELECT/WITH statement. sqlText can come
+// straight from a user's shell (unresolved alias -> raw positional args) or
+// from a saved alias, so this rejects stacked statements (which could smuggle
+// a DROP/ATTACH/PRAGMA in after a semicolon) and any non-SELECT statement type.
+func validateReadOnlySQL(sqlText string) error {
+	stmt := strings.TrimSpace(sqlText)
+	if stmt == "" {
+		return fmt.Errorf("query is empty")
+	}
+	stmt = strings.TrimSpace(strings.TrimSuffix(stmt, ";"))
+	if strings.Contains(stmt, ";") {
+		return fmt.Errorf("only a single SQL statement is allowed")
+	}
+	upper := strings.ToUpper(stmt)
+	if !strings.HasPrefix(upper, "SELECT") && !strings.HasPrefix(upper, "WITH") {
+		return fmt.Errorf("only read-only SELECT queries are allowed")
+	}
+	return nil
+}
+
 // RunOnRecords loads records into an in-memory review_log table and runs sqlText
 // against it. Split out from Run so it can be tested/benchmarked without git.
 func RunOnRecords(records []ReviewRecord, sqlText string) (QueryResult, error) {
+	if err := validateReadOnlySQL(sqlText); err != nil {
+		return QueryResult{}, err
+	}
+
 	db, err := storage.OpenInMemorySQLite()
 	if err != nil {
 		return QueryResult{}, err
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			log.Printf("reviewquery: failed to close in-memory sqlite db: %v", cerr)
+		}
+	}()
 
 	if _, err := storage.ExecSQL(db, createTableSQL); err != nil {
 		return QueryResult{}, fmt.Errorf("failed to create review_log table: %w", err)

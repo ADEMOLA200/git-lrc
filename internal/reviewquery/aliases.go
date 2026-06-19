@@ -2,6 +2,7 @@ package reviewquery
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +20,7 @@ import (
 // the installer writes ~/.lrc/queries.toml. User-defined aliases override these.
 func builtinAliases() map[string]string {
 	return map[string]string{
-		"stats":     "SELECT action AS Action, COUNT(*) AS Commits, ROUND(AVG(iterations),1) AS AvgIter, ROUND(AVG(coverage)) AS AvgCoveragePct FROM review_log GROUP BY action ORDER BY Commits DESC",
+		"stats":     "SELECT action AS Action, COUNT(*) AS Commits, ROUND(AVG(iterations),1) AS AvgIter, ROUND(AVG(coverage),1) AS AvgCoveragePct FROM review_log GROUP BY action ORDER BY Commits DESC",
 		"by-author": "SELECT author AS Author, COUNT(*) AS Commits, SUM(action = 'reviewed') AS Reviewed FROM review_log GROUP BY author ORDER BY Commits DESC",
 		"recent":    "SELECT short_hash AS Hash, date AS Date, action AS Action, subject AS Subject FROM review_log ORDER BY date DESC LIMIT 20",
 	}
@@ -52,17 +53,20 @@ func loadUserAliases() (map[string]string, error) {
 		if os.IsNotExist(err) {
 			return map[string]string{}, nil
 		}
-		return nil, fmt.Errorf("failed to access %s: %w", path, err)
+		return nil, fmt.Errorf("failed to access user aliases file %s: %w", path, err)
 	}
 
 	k := koanf.New(".")
 	if err := k.Load(file.Provider(path), toml.Parser()); err != nil {
-		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse user aliases file %s: %w", path, err)
+	}
+	// A non-empty file that lacks the [queries] table entirely is malformed —
+	// surface that instead of silently loading zero aliases.
+	if len(k.Keys()) > 0 && !k.Exists("queries") {
+		return nil, fmt.Errorf("user aliases file %s has no [queries] table", path)
 	}
 	out := map[string]string{}
-	for name, val := range k.StringMap("queries") {
-		out[name] = val
-	}
+	maps.Copy(out, k.StringMap("queries"))
 	return out, nil
 }
 
@@ -118,6 +122,9 @@ func AddAlias(name, sql string) error {
 	}
 	if strings.TrimSpace(sql) == "" {
 		return fmt.Errorf("alias SQL cannot be empty")
+	}
+	if err := validateReadOnlySQL(sql); err != nil {
+		return fmt.Errorf("alias SQL rejected: %w", err)
 	}
 	user, err := loadUserAliases()
 	if err != nil {

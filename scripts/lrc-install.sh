@@ -537,7 +537,7 @@ if [ ! -f "$LRC_QUERIES_FILE" ]; then
 # Add your own with:                lrc query --add "<sql>" --name "<name>"
 # Table columns: hash, short_hash, author, email, date, branch, subject, action, iterations, coverage
 [queries]
-stats = "SELECT action AS Action, COUNT(*) AS Commits, ROUND(AVG(iterations),1) AS AvgIter, ROUND(AVG(coverage)) AS AvgCoveragePct FROM review_log GROUP BY action ORDER BY Commits DESC"
+stats = "SELECT action AS Action, COUNT(*) AS Commits, ROUND(AVG(iterations),1) AS AvgIter, ROUND(AVG(coverage),1) AS AvgCoveragePct FROM review_log GROUP BY action ORDER BY Commits DESC"
 by-author = "SELECT author AS Author, COUNT(*) AS Commits, SUM(action = 'reviewed') AS Reviewed FROM review_log GROUP BY author ORDER BY Commits DESC"
 recent = "SELECT short_hash AS Hash, date AS Date, action AS Action, subject AS Subject FROM review_log ORDER BY date DESC LIMIT 20"
 QUERIESEOF

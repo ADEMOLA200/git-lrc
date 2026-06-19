@@ -24,6 +24,9 @@ func OpenInMemorySQLite() (*sql.DB, error) {
 
 // BulkInsert inserts many rows under a single transaction with a prepared
 // statement — far faster than autocommitting each row (matters for large repos).
+// query is executed as-is with no restriction on statement type, so callers
+// must only pass trusted, internally-constructed SQL (e.g. a fixed INSERT
+// template) — never untrusted/user-supplied text.
 func BulkInsert(db *sql.DB, query string, rows [][]any) error {
 	if db == nil {
 		return fmt.Errorf("failed bulk insert: nil database handle")
@@ -51,9 +54,12 @@ func BulkInsert(db *sql.DB, query string, rows [][]any) error {
 	return nil
 }
 
-// QueryRows runs a read-only query and returns the column names plus each row
+// QueryRows runs a query and returns the column names plus each row
 // stringified (NULL -> ""). Keeping database/sql access inside the storage
 // boundary lets callers render results without importing database/sql.
+// This package does not itself enforce that query is read-only or a single
+// statement — when query may originate from user input (as it does for the
+// reviewquery engine), the caller is responsible for validating it first.
 func QueryRows(db *sql.DB, query string, args ...any) (columns []string, rows [][]string, err error) {
 	if db == nil {
 		return nil, nil, fmt.Errorf("failed SQL query: nil database handle")
