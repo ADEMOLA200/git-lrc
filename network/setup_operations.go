@@ -51,3 +51,10 @@ func SetupCreateConnector(client *Client, cloudBase, orgID string, payload any, 
 func SetupListConnectors(client *Client, cloudBase, orgID, accessToken string) (*Response, error) {
 	return client.DoJSON(http.MethodGet, SetupCreateConnectorURL(cloudBase), nil, accessToken, orgID, nil)
 }
+
+// SetupOnboard submits the onboarding request to LiveReview.
+func SetupOnboard(client *Client, cloudBase, onboardingKey string) (*Response, error) {
+	return client.DoJSON(http.MethodPost, SetupOnboardURL(cloudBase), nil, "", "", map[string]string{
+		"X-API-Key": onboardingKey,
+	})
+}
