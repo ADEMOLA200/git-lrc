@@ -14,6 +14,10 @@ func SetupEnsureCloudUserURL(baseURL string) string {
 	return strings.TrimSuffix(baseURL, "/") + "/api/v1/auth/ensure-cloud-user"
 }
 
+func SetupOnboardURL(baseURL string) string {
+	return strings.TrimSuffix(baseURL, "/") + "/api/v1/auth/onboard"
+}
+
 func SetupAuthRefreshURL(baseURL string) string {
 	return strings.TrimSuffix(baseURL, "/") + "/api/v1/auth/refresh"
 }

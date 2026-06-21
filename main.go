@@ -72,6 +72,7 @@ func main() {
 		RunReviewCleanup:      func(c *cli.Context) error { return reviewdb.RunReviewDBCleanup(c.Bool("verbose")) },
 		RunAttestationTrailer: appcore.RunAttestationTrailer,
 		RunSetup:              appui.RunSetup,
+		RunOnboard:            appui.RunOnboard,
 		RunUI:                 appui.RunUI,
 		RunUsageInspect:              appcore.RunUsageInspect,
 		RunInternalClaudePreToolUse:     appcore.RunInternalClaudePreToolUse,
