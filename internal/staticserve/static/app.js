@@ -713,7 +713,7 @@ async function initApp() {
                     isOpen: true,
                     type: 'info',
                     agent,
-                    message: `${agent.label} handoff is coming soon. Try Claude for now.`
+                    message: `${agent.label} handoff is not yet implemented. Try Claude for now.`
                 });
                 return;
             }
@@ -1208,7 +1208,7 @@ async function initApp() {
                                         : handoffModal.type === 'success'
                                             ? `Auto-fixing Using ${handoffModal.agent?.label || 'Agent'} Code`
                                             : handoffModal.type === 'info'
-                                                ? 'Coming Soon'
+                                                ? 'Not Yet Implemented'
                                                 : 'Notice'}
                                 </h3>
                                 <p style="margin: 0 0 16px 0; color: var(--text-secondary); line-height: 1.5;">
