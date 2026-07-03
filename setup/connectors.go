@@ -25,12 +25,17 @@ func redactConnectorErrorBody(body []byte, secrets ...string) string {
 	return msg
 }
 
-// ValidateGeminiKey checks the key against LiveReview's validate-key endpoint.
-func ValidateGeminiKey(result *SetupResult, geminiKey string, apiURL string) (bool, string, error) {
+func defaultAPIURL(apiURL string) string {
 	apiURL = strings.TrimSpace(apiURL)
 	if apiURL == "" {
-		apiURL = CloudAPIURL
+		return CloudAPIURL
 	}
+	return apiURL
+}
+
+// ValidateGeminiKey checks the key against LiveReview's validate-key endpoint.
+func ValidateGeminiKey(result *SetupResult, geminiKey string, apiURL string) (bool, string, error) {
+	apiURL = defaultAPIURL(apiURL)
 
 	reqBody := ValidateKeyRequest{
 		Provider: "gemini",
@@ -56,29 +61,52 @@ func ValidateGeminiKey(result *SetupResult, geminiKey string, apiURL string) (bo
 	return valResp.Valid, valResp.Message, nil
 }
 
-// CreateGeminiConnector creates a Gemini AI connector in LiveReview.
-func CreateGeminiConnector(result *SetupResult, geminiKey string, apiURL string) error {
-	apiURL = strings.TrimSpace(apiURL)
-	if apiURL == "" {
-		apiURL = CloudAPIURL
+// createConnector posts a connector creation request to LiveReview, sharing
+// the URL defaulting, network call, and error handling used by every
+// connector-creation flow (leader, helper, ...). errLabel is used to phrase
+// error messages, e.g. "connector" or "helper connector".
+func createConnector(result *SetupResult, apiURL string, reqBody CreateConnectorRequest, geminiKey string, errLabel string) error {
+	apiURL = defaultAPIURL(apiURL)
+
+	client := network.NewSetupClient(30 * time.Second)
+	resp, err := network.SetupCreateConnector(client, apiURL, result.OrgID, reqBody, result.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to create %s: %w", errLabel, err)
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("create %s returned %d: %s", errLabel, resp.StatusCode, redactConnectorErrorBody(resp.Body, geminiKey))
 	}
 
+	return nil
+}
+
+// CreateGeminiConnector creates a Gemini AI connector in LiveReview.
+func CreateGeminiConnector(result *SetupResult, geminiKey string, apiURL string) error {
 	reqBody := CreateConnectorRequest{
 		ProviderName:  "gemini",
 		APIKey:        geminiKey,
 		ConnectorName: "Gemini Flash",
 		SelectedModel: DefaultGeminiModel,
 		DisplayOrder:  0,
+		Role:          "leader",
 	}
 
-	client := network.NewSetupClient(30 * time.Second)
-	resp, err := network.SetupCreateConnector(client, apiURL, result.OrgID, reqBody, result.AccessToken)
-	if err != nil {
-		return fmt.Errorf("failed to create connector: %w", err)
-	}
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("create connector returned %d: %s", resp.StatusCode, redactConnectorErrorBody(resp.Body, geminiKey))
+	return createConnector(result, apiURL, reqBody, geminiKey, "connector")
+}
+
+// CreateGeminiHelperConnector creates a Gemini Flash-Lite helper connector in
+// LiveReview, reusing the same free Gemini key as the leader connector. This
+// powers Adaptive Review (see LiveReview's leader/helper model feature) out
+// of the box for onboarded orgs, with no second key prompt.
+func CreateGeminiHelperConnector(result *SetupResult, geminiKey string, apiURL string) error {
+	reqBody := CreateConnectorRequest{
+		ProviderName:  "gemini",
+		APIKey:        geminiKey,
+		ConnectorName: "Gemini Flash-Lite (Helper)",
+		SelectedModel: DefaultGeminiHelperModel,
+		DisplayOrder:  0,
+		Role:          "helper",
 	}
 
-	return nil
+	return createConnector(result, apiURL, reqBody, geminiKey, "helper connector")
 }
