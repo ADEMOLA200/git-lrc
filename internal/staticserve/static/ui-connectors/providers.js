@@ -82,5 +82,6 @@ export function defaultForm() {
     selected_model: '',
     gcp_project_id: '',
     gcp_location: '',
+    role: 'leader',
   };
 }

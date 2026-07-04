@@ -265,6 +265,13 @@ const ICON_SPECS = Object.freeze({
             { tag: 'path', attrs: { d: 'M12 18h.01' } },
         ],
     },
+    info: {
+        elements: [
+            { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },
+            { tag: 'path', attrs: { d: 'M12 16v-4' } },
+            { tag: 'path', attrs: { d: 'M12 8h.01' } },
+        ],
+    },
     brandClaude: {
         type: 'brand-monogram',
         letter: 'C',

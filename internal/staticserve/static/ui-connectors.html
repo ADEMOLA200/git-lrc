@@ -526,6 +526,133 @@
       background: var(--bg-secondary);
       font-variant-numeric: tabular-nums;
     }
+    .role-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .role-tab {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 4px;
+      margin-right: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .role-tab:hover {
+      background: transparent;
+      color: var(--text-secondary);
+    }
+    .role-tab.active {
+      color: var(--accent-blue-light);
+      border-bottom-color: var(--accent-blue);
+    }
+    .role-tab-count {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      padding: 1px 7px;
+      font-variant-numeric: tabular-nums;
+    }
+    .role-tab.active .role-tab-count {
+      color: var(--accent-blue-light);
+      border-color: var(--accent-blue);
+    }
+    .helper-info-card, .helper-settings-card {
+      margin-bottom: 16px;
+    }
+    .connectors-list-title {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .helper-info-toggle {
+      width: 100%;
+      background: transparent;
+      border: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      color: var(--text-primary);
+    }
+    .helper-info-toggle:hover {
+      background: transparent;
+      color: var(--accent-blue-light);
+    }
+    .helper-info-toggle h2 {
+      margin: 0;
+    }
+    .helper-info-body {
+      margin-top: 12px;
+    }
+    .helper-info-card p {
+      margin: 0 0 10px 0;
+      line-height: 1.5;
+    }
+    .helper-info-card p:last-child {
+      margin-bottom: 0;
+    }
+    .helper-info-point {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .helper-info-icon {
+      flex: none;
+      margin-top: 2px;
+      color: var(--accent-blue-light);
+    }
+    .helper-settings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .helper-settings-header h2 {
+      margin: 0;
+    }
+    .badge-enabled {
+      color: var(--accent-blue-light);
+      border-color: var(--accent-blue);
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: auto;
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      cursor: pointer;
+    }
+    .checkbox-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      cursor: pointer;
+    }
+    .helper-settings-actions {
+      align-items: center;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .helper-settings-actions .status {
+      margin-top: 0;
+    }
     .muted { color: var(--text-muted); font-size: 12px; }
     .muted-meta {
       margin-top: 2px;

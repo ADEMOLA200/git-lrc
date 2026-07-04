@@ -342,6 +342,32 @@ func (s *connectorManagerServer) handleReorder(w http.ResponseWriter, r *http.Re
 	writeRawJSON(w, status, respBody)
 }
 
+func (s *connectorManagerServer) handleHelperSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		status, respBody, err := s.proxyJSONRequest(http.MethodGet, "/api/v1/aiconnectors/settings", nil)
+		if err != nil {
+			writeJSONError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeRawJSON(w, status, respBody)
+	case http.MethodPut:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "failed to read request body")
+			return
+		}
+		status, respBody, err := s.proxyJSONRequest(http.MethodPut, "/api/v1/aiconnectors/settings", body)
+		if err != nil {
+			writeJSONError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeRawJSON(w, status, respBody)
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 func (s *connectorManagerServer) handleValidateKey(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")

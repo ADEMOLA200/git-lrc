@@ -59,6 +59,7 @@ func RunUI(c *cli.Context) error {
 	mux.HandleFunc("/api/ui/auth/reauth", srv.handleReauthenticate)
 	mux.HandleFunc("/api/ui/org-context", srv.handleSetOrgContext)
 	mux.HandleFunc("/api/ui/connectors/reorder", srv.handleReorder)
+	mux.HandleFunc("/api/ui/connectors/settings", srv.handleHelperSettings)
 	mux.HandleFunc("/api/ui/connectors/validate-key", srv.handleValidateKey)
 	mux.HandleFunc("/api/ui/connectors/ollama/models", srv.handleOllamaModels)
 	mux.HandleFunc("/api/ui/connectors/providers/", srv.handleProviderModels)

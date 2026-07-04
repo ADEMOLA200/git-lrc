@@ -61,6 +61,15 @@ export function ConnectorsPage({
   loading,
   orderedConnectors,
   hasOrderChanges,
+  activeRoleTab,
+  onSwitchRoleTab,
+  roleCounts,
+  helperSettings,
+  helperSettingsSaving,
+  helperSettingsSaved,
+  helperSettingsError,
+  onHelperSettingChange,
+  onSaveHelperSettings,
   onRefresh,
   onSaveOrder,
   onMove,
@@ -73,6 +82,7 @@ export function ConnectorsPage({
   const [dragOverID, setDragOverID] = useState('');
   const [pulseItemID, setPulseItemID] = useState('');
   const [pulseSave, setPulseSave] = useState(false);
+  const [infoExpanded, setInfoExpanded] = useState(false);
 
   useEffect(() => {
     if (!pulseItemID) {
@@ -148,9 +158,90 @@ export function ConnectorsPage({
             </div>
           </div>
 
+          <div class="role-tabs">
+            <button
+              class=${`role-tab ${activeRoleTab === 'leader' ? 'active' : ''}`}
+              onClick=${() => onSwitchRoleTab('leader')}
+            >
+              Leader <span class="role-tab-count">${roleCounts.leader}</span>
+            </button>
+            <button
+              class=${`role-tab ${activeRoleTab === 'helper' ? 'active' : ''}`}
+              onClick=${() => onSwitchRoleTab('helper')}
+            >
+              Helper <span class="role-tab-count">${roleCounts.helper}</span>
+            </button>
+          </div>
+
+          ${activeRoleTab === 'helper'
+            ? html`
+                <div class="card helper-info-card">
+                  <button type="button" class="helper-info-toggle" onClick=${() => setInfoExpanded(!infoExpanded)}>
+                    <h2>What is Adaptive Review?</h2>
+                    ${renderIcon(html, infoExpanded ? 'dropdownOpen' : 'dropdownClosed', { className: 'btn-icon' })}
+                  </button>
+                  ${infoExpanded
+                    ? html`
+                        <div class="helper-info-body">
+                          <p class="muted helper-info-point">
+                            ${renderIcon(html, 'info', { className: 'btn-icon helper-info-icon' })}
+                            <span>Adaptive Review pairs a Leader model (finds and judges issues) with a Helper model (expands the Leader's short notes into clear, polished comments). Splitting the work this way typically cuts review cost 40-50% with no loss in detection quality, since the Leader still decides everything about what's worth flagging.</span>
+                          </p>
+                          <p class="muted helper-info-point">
+                            ${renderIcon(html, 'info', { className: 'btn-icon helper-info-icon' })}
+                            <span>If the Helper model fails or isn't configured, LiveReview automatically falls back to posting the Leader model's own output — reviews never fail because of a Helper model issue.</span>
+                          </p>
+                          <p class="muted helper-info-point" style="margin-bottom: 0;">
+                            ${renderIcon(html, 'info', { className: 'btn-icon helper-info-icon' })}
+                            <span><strong>Concise Then Expand</strong> asks the Leader for terse notes and has the Helper expand them into full comments. <strong>Polish Only</strong> asks the Leader for full comments and has the Helper just clean up the wording.</span>
+                          </p>
+                        </div>
+                      `
+                    : ''}
+                </div>
+
+                <div class="card helper-settings-card">
+                  <div class="helper-settings-header">
+                    <h2>Helper Model Settings</h2>
+                    <span class=${`badge ${helperSettings.helperEnabled ? 'badge-enabled' : ''}`}>
+                      ${helperSettings.helperEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked=${helperSettings.helperEnabled}
+                      onChange=${(event) => onHelperSettingChange('helperEnabled', event.target.checked)}
+                    />
+                    Enable Helper model for text expansion and polishing
+                  </label>
+
+                  <label>Helper Mode</label>
+                  <select
+                    value=${helperSettings.helperMode}
+                    disabled=${!helperSettings.helperEnabled}
+                    onChange=${(event) => onHelperSettingChange('helperMode', event.target.value)}
+                  >
+                    <option value="concise_then_expand">Concise Then Expand</option>
+                    <option value="polish_only">Polish Only</option>
+                  </select>
+
+                  <div class="row helper-settings-actions">
+                    <button onClick=${onSaveHelperSettings} disabled=${helperSettingsSaving}>
+                      ${renderIcon(html, 'save', { className: 'btn-icon' })}${helperSettingsSaving ? 'Saving...' : 'Save Helper Settings'}
+                    </button>
+                    ${helperSettingsSaved ? html`<span class="status ok">Saved</span>` : ''}
+                  </div>
+                  ${helperSettingsError ? html`<div class="status err">${helperSettingsError}</div>` : ''}
+                </div>
+              `
+            : ''}
+
+          <h3 class="connectors-list-title">Your Connectors</h3>
           <div class="list">
             ${orderedConnectors.length === 0
-              ? html`<div class="page-empty">No connectors found.</div>`
+              ? html`<div class="page-empty">No ${activeRoleTab} connectors found.</div>`
               : orderedConnectors.map((connector, index) => html`
                   <div
                     class=${`item ${draggingID === String(connector.id) ? 'dragging' : ''} ${dragOverID === String(connector.id) ? 'drag-over' : ''} ${pulseItemID === String(connector.id) ? 'pulse-attention' : ''}`}

@@ -102,7 +102,7 @@ func CreateGeminiHelperConnector(result *SetupResult, geminiKey string, apiURL s
 	reqBody := CreateConnectorRequest{
 		ProviderName:  "gemini",
 		APIKey:        geminiKey,
-		ConnectorName: "Gemini Flash-Lite (Helper)",
+		ConnectorName: "Gemini Flash-Lite",
 		SelectedModel: DefaultGeminiHelperModel,
 		DisplayOrder:  0,
 		Role:          "helper",

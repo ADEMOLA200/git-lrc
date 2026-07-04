@@ -116,6 +116,15 @@ export function ConnectorFormPage({
             </button>
           </div>
 
+          <label>Role</label>
+          <select value=${form.role || 'leader'} onChange=${(event) => onFieldChange('role', event.target.value)}>
+            <option value="leader">Leader</option>
+            <option value="helper">Helper</option>
+          </select>
+          <p class="muted" style="margin: -8px 0 15px 0;">
+            Leader connectors handle full reviews. Helper connectors power Adaptive Review's lighter, faster passes.
+          </p>
+
           ${isGeminiEnterprise
             ? html`
                 <label>Service Account JSON</label>

@@ -19,7 +19,12 @@ function App() {
   const suppressHashChangeRef = useRef(false);
   const [route, setRoute] = useState(parseRoute(window.location.hash));
   const [connectors, setConnectors] = useState([]);
-  const [draftOrder, setDraftOrder] = useState([]);
+  const [draftOrders, setDraftOrders] = useState({ leader: [], helper: [] });
+  const [activeRoleTab, setActiveRoleTab] = useState('leader');
+  const [helperSettings, setHelperSettings] = useState({ helperEnabled: true, helperMode: 'concise_then_expand' });
+  const [helperSettingsSaving, setHelperSettingsSaving] = useState(false);
+  const [helperSettingsSaved, setHelperSettingsSaved] = useState(false);
+  const [helperSettingsError, setHelperSettingsError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
@@ -113,6 +118,14 @@ function App() {
   }, [form.provider_name]);
 
   useEffect(() => {
+    if (!helperSettingsSaved) {
+      return;
+    }
+    const timer = window.setTimeout(() => setHelperSettingsSaved(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [helperSettingsSaved]);
+
+  useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsOpen(false);
@@ -122,23 +135,36 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const hasOrderChanges = useMemo(() => {
-    const currentOrder = [...connectors]
+  function canonicalOrderForRole(list, role) {
+    return list
+      .filter((item) => (item.role || 'leader') === role)
       .sort((left, right) => (left.display_order || 0) - (right.display_order || 0))
       .map((item) => String(item.id));
+  }
 
-    if (currentOrder.length !== draftOrder.length) {
-      return true;
+  function buildDraftOrders(list) {
+    return {
+      leader: canonicalOrderForRole(list, 'leader'),
+      helper: canonicalOrderForRole(list, 'helper'),
+    };
+  }
+
+  function ordersEqual(left, right) {
+    if (left.length !== right.length) {
+      return false;
     }
+    return left.every((value, index) => value === right[index]);
+  }
 
-    for (let index = 0; index < currentOrder.length; index++) {
-      if (currentOrder[index] !== draftOrder[index]) {
-        return true;
-      }
-    }
+  const hasOrderChangesByRole = useMemo(() => {
+    return {
+      leader: !ordersEqual(canonicalOrderForRole(connectors, 'leader'), draftOrders.leader),
+      helper: !ordersEqual(canonicalOrderForRole(connectors, 'helper'), draftOrders.helper),
+    };
+  }, [connectors, draftOrders]);
 
-    return false;
-  }, [connectors, draftOrder]);
+  const hasOrderChanges = hasOrderChangesByRole[activeRoleTab];
+  const hasAnyOrderChanges = hasOrderChangesByRole.leader || hasOrderChangesByRole.helper;
 
   const activePath = routePath(route);
   const editingConnector =
@@ -210,7 +236,7 @@ function App() {
         await loadConnectors(true, refreshedSession);
       } else {
         setConnectors([]);
-        setDraftOrder([]);
+        setDraftOrders({ leader: [], helper: [] });
         setStatus('Re-authentication complete. Select organization context in the header.');
       }
       navigate('/connectors');
@@ -222,6 +248,50 @@ function App() {
     }
   }
 
+  async function loadHelperSettings() {
+    try {
+      const data = await api('/api/ui/connectors/settings');
+      setHelperSettings({
+        helperEnabled: Boolean(data.helper_enabled),
+        helperMode: data.helper_mode || 'concise_then_expand',
+      });
+    } catch (err) {
+      console.error('Failed to load helper settings:', err);
+    }
+  }
+
+  async function saveHelperSettings() {
+    setHelperSettingsSaving(true);
+    setHelperSettingsSaved(false);
+    setHelperSettingsError('');
+    try {
+      const data = await api('/api/ui/connectors/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          helper_enabled: helperSettings.helperEnabled,
+          helper_mode: helperSettings.helperMode,
+        }),
+      });
+      setHelperSettings({
+        helperEnabled: Boolean(data.helper_enabled),
+        helperMode: data.helper_mode || 'concise_then_expand',
+      });
+      setHelperSettingsSaved(true);
+    } catch (err) {
+      if (await handleAuthError(err)) {
+        return;
+      }
+      setHelperSettingsError(err.message || String(err));
+    } finally {
+      setHelperSettingsSaving(false);
+    }
+  }
+
+  function setHelperSetting(field, value) {
+    setHelperSettings((prev) => ({ ...prev, [field]: value }));
+    setHelperSettingsSaved(false);
+  }
+
   async function loadConnectors(force = false, sessionSnapshot = null) {
     setLoading(true);
     setError('');
@@ -229,15 +299,16 @@ function App() {
       const activeSession = sessionSnapshot || session;
       if (!activeSession || !activeSession.authenticated || !activeSession.org_id) {
         setConnectors([]);
-        setDraftOrder([]);
+        setDraftOrders({ leader: [], helper: [] });
         setStatus(activeSession && activeSession.authenticated ? 'Select organization context to load connectors' : 'Authenticate to load connectors');
         return;
       }
       const data = await api('/api/ui/connectors');
       const sorted = [...data].sort((left, right) => (left.display_order || 0) - (right.display_order || 0));
       setConnectors(sorted);
-      setDraftOrder(sorted.map((item) => String(item.id)));
+      setDraftOrders(buildDraftOrders(sorted));
       setStatus(`Loaded ${sorted.length} connector(s)`);
+      await loadHelperSettings();
     } catch (err) {
       if (await handleAuthError(err)) {
         return;
@@ -274,7 +345,7 @@ function App() {
         setStatus('Organization context switched');
       } else {
         setConnectors([]);
-        setDraftOrder([]);
+        setDraftOrders({ leader: [], helper: [] });
         setStatus('Organization switch complete. Select organization context in the header.');
       }
     } catch (err) {
@@ -311,7 +382,7 @@ function App() {
       const nextRoute = parseRoute(window.location.hash);
       const leavingConnectorsWithUnsavedOrder =
         route.name === 'connectors' &&
-        hasOrderChanges &&
+        hasAnyOrderChanges &&
         nextRoute.name !== 'connectors';
 
       if (leavingConnectorsWithUnsavedOrder) {
@@ -322,10 +393,7 @@ function App() {
           return;
         }
 
-        const savedOrder = [...connectors]
-          .sort((left, right) => (left.display_order || 0) - (right.display_order || 0))
-          .map((item) => String(item.id));
-        setDraftOrder(savedOrder);
+        setDraftOrders(buildDraftOrders(connectors));
       }
 
       setRoute(nextRoute);
@@ -334,11 +402,11 @@ function App() {
     window.addEventListener('hashchange', onHashChange);
     onHashChange();
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, [route, hasOrderChanges]);
+  }, [route, hasAnyOrderChanges]);
 
   useEffect(() => {
     const onBeforeUnload = (event) => {
-      const hasUnsavedOrderChanges = route.name === 'connectors' && hasOrderChanges;
+      const hasUnsavedOrderChanges = route.name === 'connectors' && hasAnyOrderChanges;
       if (!hasUnsavedOrderChanges) {
         return;
       }
@@ -349,11 +417,11 @@ function App() {
 
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [route.name, hasOrderChanges]);
+  }, [route.name, hasAnyOrderChanges]);
 
   useEffect(() => {
     if (route.name === 'new') {
-      resetFormState();
+      resetFormState(activeRoleTab);
       setError('');
       setStatus('');
       return;
@@ -374,14 +442,15 @@ function App() {
           selected_model: connector.selected_model || '',
           gcp_project_id: connector.gcp_project_id || '',
           gcp_location: connector.gcp_location || '',
+          role: connector.role || 'leader',
         });
         setStatus(`Editing connector #${connector.id}`);
       }
     }
-  }, [route.name, route.connectorID, connectors]);
+  }, [route.name, route.connectorID, connectors, activeRoleTab]);
 
-  function resetFormState() {
-    setForm(defaultForm());
+  function resetFormState(role) {
+    setForm({ ...defaultForm(), role: role || 'leader' });
     setOllamaModels([]);
     setApiDefaultModel('');
     setModelsFetched(false);
@@ -432,6 +501,7 @@ function App() {
       selected_model: connector.selected_model || '',
       gcp_project_id: connector.gcp_project_id || '',
       gcp_location: connector.gcp_location || '',
+      role: connector.role || 'leader',
     });
     setStatus(`Editing connector #${connector.id}`);
     navigate(`/connectors/edit/${connector.id}`);
@@ -558,6 +628,7 @@ function App() {
         gcp_project_id: (form.gcp_project_id || '').trim() || undefined,
         gcp_location: (form.gcp_location || '').trim() || undefined,
         display_order: 0,
+        role: form.role || 'leader',
       };
 
       if (form.id) {
@@ -605,14 +676,15 @@ function App() {
   }
 
   function move(id, direction) {
-    setDraftOrder((prev) => {
-      const index = prev.findIndex((value) => value === id);
+    setDraftOrders((prev) => {
+      const roleList = prev[activeRoleTab];
+      const index = roleList.findIndex((value) => value === id);
       if (index < 0) return prev;
       const target = direction === 'up' ? index - 1 : index + 1;
-      if (target < 0 || target >= prev.length) return prev;
-      const copy = [...prev];
+      if (target < 0 || target >= roleList.length) return prev;
+      const copy = [...roleList];
       [copy[index], copy[target]] = [copy[target], copy[index]];
-      return copy;
+      return { ...prev, [activeRoleTab]: copy };
     });
   }
 
@@ -621,17 +693,18 @@ function App() {
       return;
     }
 
-    setDraftOrder((prev) => {
-      const sourceIndex = prev.findIndex((value) => value === sourceID);
-      const targetIndex = prev.findIndex((value) => value === targetID);
+    setDraftOrders((prev) => {
+      const roleList = prev[activeRoleTab];
+      const sourceIndex = roleList.findIndex((value) => value === sourceID);
+      const targetIndex = roleList.findIndex((value) => value === targetID);
       if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
         return prev;
       }
 
-      const copy = [...prev];
+      const copy = [...roleList];
       const [sourceValue] = copy.splice(sourceIndex, 1);
       copy.splice(targetIndex, 0, sourceValue);
-      return copy;
+      return { ...prev, [activeRoleTab]: copy };
     });
   }
 
@@ -639,7 +712,7 @@ function App() {
     setError('');
     setStatus('');
     try {
-      const updates = draftOrder.map((id, idx) => ({ id, display_order: idx + 1 }));
+      const updates = draftOrders[activeRoleTab].map((id, idx) => ({ id, display_order: idx + 1 }));
       await api('/api/ui/connectors/reorder', {
         method: 'PUT',
         body: JSON.stringify(updates),
@@ -654,9 +727,16 @@ function App() {
     }
   }
 
-  const orderedConnectors = draftOrder
+  const orderedConnectors = draftOrders[activeRoleTab]
     .map((id) => connectors.find((entry) => String(entry.id) === id))
     .filter(Boolean);
+
+  const roleCounts = useMemo(() => {
+    return {
+      leader: connectors.filter((entry) => (entry.role || 'leader') === 'leader').length,
+      helper: connectors.filter((entry) => (entry.role || 'leader') === 'helper').length,
+    };
+  }, [connectors]);
 
   const saveDisabled = useMemo(() => {
     const provider = providers.find((entry) => entry.id === form.provider_name) || providers[0];
@@ -717,6 +797,15 @@ function App() {
         loading=${loading}
         orderedConnectors=${orderedConnectors}
         hasOrderChanges=${hasOrderChanges}
+        activeRoleTab=${activeRoleTab}
+        onSwitchRoleTab=${setActiveRoleTab}
+        roleCounts=${roleCounts}
+        helperSettings=${helperSettings}
+        helperSettingsSaving=${helperSettingsSaving}
+        helperSettingsSaved=${helperSettingsSaved}
+        helperSettingsError=${helperSettingsError}
+        onHelperSettingChange=${setHelperSetting}
+        onSaveHelperSettings=${saveHelperSettings}
         onRefresh=${loadConnectors}
         onSaveOrder=${saveOrder}
         onMove=${move}
